@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Daily Wins">
+<title>Daily Wins</title>
+<link rel="manifest" href="manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loading">
+  <div class="loading-inner">
+    <div class="loading-title">Daily Wins</div>
+    <div class="loading-sub">Loading your system...</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" style="display:none">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-top">
+      <div class="header-left">
+        <div class="date-label" id="dateLabel"></div>
+        <div class="stoic-label">Today's Stoic</div>
+        <div class="stoic-today" id="stoicQuote"></div>
+        <div class="stoic-attr" id="stoicAttr"></div>
+      </div>
+      <div class="points-badge">
+        <div class="points-number" id="totalPoints">0</div>
+        <div class="points-label">pts today</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WEEKLY PROGRESS -->
+  <div class="progress-section">
+    <div class="progress-label">
+      <span>Weekly Points</span>
+      <span class="progress-pct" id="weeklyPts">0 / 100 pts</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill" style="width:0%"></div>
+    </div>
+    <div class="level-info">
+      <span id="levelLabel">Level 1 — Beginning</span>
+      <span id="nextLevel">100pts → Level 2</span>
+    </div>
+  </div>
+
+  <!-- CATEGORIES -->
+  <div class="categories" id="categories"></div>
+
+  <!-- STREAKS -->
+  <div class="streak-panel">
+    <div class="streak-title">Current Streaks</div>
+    <div class="streak-grid">
+      <div class="streak-item">
+        <div class="streak-num" id="streakWorkout">0</div>
+        <div class="streak-label">Workout Days</div>
+      </div>
+      <div class="streak-item">
+        <div class="streak-num" id="streakClean">0</div>
+        <div class="streak-label">Clean Days</div>
+      </div>
+      <div class="streak-item">
+        <div class="streak-num" id="streakRead">0</div>
+        <div class="streak-label">Read / Learn</div>
+      </div>
+      <div class="streak-item">
+        <div class="streak-num" id="streakSteps">0</div>
+        <div class="streak-label">7k+ Steps</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REWARDS -->
+  <div class="rewards-section">
+    <div class="rewards-title">Rewards — Spend Your Points</div>
+    <div id="rewardsList"></div>
+  </div>
+
+  <!-- BOTTOM NOTE -->
+  <div class="bottom-note">
+    <p>"The impediment to action advances action. What stands in the way becomes the way." Every win you tick today is proof of who you are becoming.</p>
+  </div>
+
+  <!-- SYNC STATUS -->
+  <div class="sync-row">
+    <span class="sync-status" id="syncStatus">● Synced</span>
+    <button class="reset-btn" onclick="resetDay()">Reset Today</button>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="app.js"></script>
+</body>
+</html>
