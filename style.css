@@ -139,6 +139,73 @@ body {
   text-transform: uppercase;
 }
 
+/* ENERGY CHECK-IN */
+.energy-checkin {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.energy-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+
+.energy-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.energy-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.energy-btn:active { opacity: 0.7; }
+
+.energy-emoji { font-size: 18px; }
+
+.energy-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.energy-btn.active { border-color: var(--gold-dim); }
+.energy-btn.active .energy-label { color: var(--gold); }
+
+.energy-btn.active.energy-low { border-color: var(--red); background: rgba(196,97,74,0.08); }
+.energy-btn.active.energy-low .energy-label { color: var(--red); }
+
+.energy-btn.active.energy-medium { border-color: var(--gold-dim); background: var(--gold-glow); }
+.energy-btn.active.energy-medium .energy-label { color: var(--gold); }
+
+.energy-btn.active.energy-high { border-color: var(--green); background: rgba(90,143,106,0.08); }
+.energy-btn.active.energy-high .energy-label { color: var(--green); }
+
+.energy-note {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  margin-top: 10px;
+}
+
 /* PROGRESS */
 .progress-section {
   padding: 18px 24px;

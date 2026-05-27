@@ -36,10 +36,17 @@ const CATEGORIES = [
   {
     id: 'mind', icon: '🧠', name: 'Mind & Discipline',
     wins: [
-      { id: 'noporn', name: 'Clean day', desc: 'No porn. Full day. This is the work.', pts: 20 },
+      { id: 'noporn', name: 'Clean day', desc: 'No porn. Full day. This is the work. Protect the rest of today — that counts.', pts: 20 },
       { id: 'noscreen', name: 'Phone off by 10pm', desc: 'Protect your sleep and your mind', pts: 8 },
       { id: 'stress', name: 'Managed stress consciously', desc: 'Breathed, walked, paused instead of reacted', pts: 6 },
       { id: 'nosnack', name: 'No mindless snacking', desc: 'Ate intentionally — not out of boredom', pts: 6 },
+    ]
+  },
+  {
+    id: 'recovery', icon: '🛡️', name: 'Recovery',
+    wins: [
+      { id: 'chose_differently', name: 'Chose differently after a slip', desc: 'You caught it. You redirected. That is the work.', pts: 15 },
+      { id: 'protected_rest', name: 'Protected the rest of the day', desc: 'One slip didn\'t become the whole day. You held the line.', pts: 15 },
     ]
   },
   {
@@ -79,6 +86,7 @@ let state = {
   streaks: { workout: 0, clean: 0, read: 0, steps: 0 },
   todayStr: getTodayStr(),
   weekStr: getWeekStr(),
+  energyLevel: null,   // 'low' | 'medium' | 'high' | null
 };
 
 function getTodayStr() {
@@ -128,10 +136,23 @@ async function loadStats() {
   }
 }
 
+async function loadEnergyLevel() {
+  const { data, error } = await db
+    .from('wins')
+    .select('win_id')
+    .eq('date', state.todayStr)
+    .like('win_id', 'energy_%')
+    .single();
+
+  if (error) return;
+  if (data) {
+    state.energyLevel = data.win_id.replace('energy_', '');
+  }
+}
+
 async function saveWin(winId, completed) {
   setSyncStatus('syncing');
 
-  // Check if row exists
   const { data: existing } = await db
     .from('wins')
     .select('id')
@@ -176,6 +197,24 @@ async function saveStats() {
   setSyncStatus('synced');
 }
 
+async function saveEnergyLevel(level) {
+  setSyncStatus('syncing');
+
+  // Remove any existing energy entry for today
+  await db.from('wins').delete()
+    .eq('date', state.todayStr)
+    .like('win_id', 'energy_%');
+
+  // Save new energy level
+  await db.from('wins').insert({
+    date: state.todayStr,
+    win_id: `energy_${level}`,
+    completed: true
+  });
+
+  setSyncStatus('synced');
+}
+
 // ============================================
 // UI FUNCTIONS
 // ============================================
@@ -195,6 +234,7 @@ function setSyncStatus(status) {
 
 function getTodayPoints() {
   return Object.keys(state.completed).reduce((sum, id) => {
+    if (id.startsWith('energy_')) return sum; // don't count energy in points
     const cat = CATEGORIES.find(c => c.wins.some(w => w.id === id));
     if (!cat) return sum;
     const win = cat.wins.find(w => w.id === id);
@@ -220,6 +260,35 @@ function updateHeader() {
   document.getElementById('streakClean').textContent = state.streaks.clean;
   document.getElementById('streakRead').textContent = state.streaks.read;
   document.getElementById('streakSteps').textContent = state.streaks.steps;
+}
+
+function renderEnergyCheckin() {
+  const container = document.getElementById('energyCheckin');
+  const levels = [
+    { key: 'low', label: 'Low', emoji: '🔋' },
+    { key: 'medium', label: 'Medium', emoji: '⚡' },
+    { key: 'high', label: 'High', emoji: '🔥' },
+  ];
+
+  container.innerHTML = `
+    <div class="energy-title">Today's Energy</div>
+    <div class="energy-buttons">
+      ${levels.map(l => `
+        <button class="energy-btn ${state.energyLevel === l.key ? 'active energy-' + l.key : ''}"
+                onclick="setEnergy('${l.key}')">
+          <span class="energy-emoji">${l.emoji}</span>
+          <span class="energy-label">${l.label}</span>
+        </button>
+      `).join('')}
+    </div>
+    ${state.energyLevel ? `<div class="energy-note">Logged — no points, just awareness.</div>` : ''}
+  `;
+}
+
+async function setEnergy(level) {
+  state.energyLevel = level;
+  renderEnergyCheckin();
+  await saveEnergyLevel(level);
 }
 
 function renderCategories(openCatId = 'body') {
@@ -316,7 +385,6 @@ async function toggleWin(winId, pts, catId) {
     showToast(`+${pts}pts — well done.`);
   }
 
-  // Update UI immediately
   const winEl = document.getElementById('win-' + winId);
   if (winEl) {
     winEl.classList.toggle('completed', !!state.completed[winId]);
@@ -325,7 +393,6 @@ async function toggleWin(winId, pts, catId) {
   updateHeader();
   renderRewards();
 
-  // Re-render cat points tally in header
   const catHeader = document.querySelector(`[onclick="toggleCat('${catId}', this)"]`);
   if (catHeader) {
     const cat = CATEGORIES.find(c => c.id === catId);
@@ -337,7 +404,6 @@ async function toggleWin(winId, pts, catId) {
     } else if (ptsEl) ptsEl.remove();
   }
 
-  // Save to Supabase
   await saveWin(winId, !!state.completed[winId]);
   await saveStats();
 }
@@ -345,10 +411,11 @@ async function toggleWin(winId, pts, catId) {
 async function resetDay() {
   if (!confirm('Reset today\'s check-ins? Weekly points and streaks will be kept.')) return;
 
-  // Delete all today's wins from DB
   await db.from('wins').delete().eq('date', state.todayStr);
   state.completed = {};
+  state.energyLevel = null;
   renderCategories('body');
+  renderEnergyCheckin();
   updateHeader();
   showToast('Today reset. Start fresh.');
 }
@@ -381,16 +448,17 @@ async function init() {
   try {
     await loadTodayWins();
     await loadStats();
+    await loadEnergyLevel();
   } catch (e) {
     console.error('Init error:', e);
     setSyncStatus('error');
   }
 
   renderCategories('body');
+  renderEnergyCheckin();
   renderRewards();
   updateHeader();
 
-  // Hide loading, show app
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 }
