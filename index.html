@@ -8,8 +8,910 @@
 <meta name="apple-mobile-web-app-title" content="Daily Wins">
 <title>Daily Wins</title>
 <link rel="manifest" href="manifest.json">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&family=Oswald:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================
+   RESET & BASE
+   ============================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --bg: #080808;
+  --surface: #0f0f0f;
+  --surface2: #161616;
+  --border: #1e1e1e;
+  --border2: #2a2a2a;
+  --orange: #e8780a;
+  --orange-dim: #a05208;
+  --orange-glow: rgba(232,120,10,0.12);
+  --orange-bright: #ff9a2e;
+  --cream: #f0e8d8;
+  --cream-dim: #9a9080;
+  --red: #d44a2e;
+  --green: #4a9460;
+  --text: #d8d0c4;
+  --text-dim: #585048;
+  --nav-h: 64px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 300;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ============================================
+   TABS
+   ============================================ */
+.tab-view { display: none; padding-bottom: calc(var(--nav-h) + 16px); }
+.tab-view.active { display: block; }
+
+/* ============================================
+   BOTTOM NAV
+   ============================================ */
+.bottom-nav {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: var(--nav-h);
+  background: #0a0a0a;
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 1000;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.nav-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+  background: none;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+}
+
+.nav-tab::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 20%; right: 20%;
+  height: 2px;
+  background: var(--orange);
+  transform: scaleX(0);
+  transition: transform 0.2s ease;
+}
+
+.nav-tab.active::before { transform: scaleX(1); }
+
+.nav-icon {
+  font-size: 20px;
+  transition: transform 0.2s;
+}
+
+.nav-tab.active .nav-icon { transform: scale(1.1); }
+
+.nav-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  transition: color 0.15s;
+}
+
+.nav-tab.active .nav-label { color: var(--orange); }
+
+/* ============================================
+   LOADING SCREEN
+   ============================================ */
+#loading {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.loading-inner { text-align: center; }
+
+.loading-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 36px;
+  font-weight: 900;
+  color: var(--orange);
+  margin-bottom: 8px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.loading-sub {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.2em;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+/* ============================================
+   WINS TAB — HEADER
+   ============================================ */
+.header {
+  padding: 52px 24px 28px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  background: linear-gradient(180deg, #0d0a06 0%, var(--bg) 100%);
+}
+
+.header::after {
+  content: '';
+  position: absolute;
+  bottom: -1px; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--orange), var(--orange-dim), transparent);
+}
+
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.header-left { flex: 1; min-width: 0; }
+
+.date-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+.stoic-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--orange-dim);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.stoic-today {
+  font-family: 'Playfair Display', serif;
+  font-size: 15px;
+  font-style: italic;
+  color: var(--cream);
+  line-height: 1.5;
+  max-width: 240px;
+}
+
+.stoic-attr {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 8px;
+  letter-spacing: 0.08em;
+}
+
+.points-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.points-number {
+  font-family: 'Playfair Display', serif;
+  font-size: 44px;
+  font-weight: 900;
+  color: var(--orange);
+  line-height: 1;
+  transition: all 0.3s ease;
+  text-shadow: 0 0 30px rgba(232,120,10,0.4);
+}
+
+.points-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--orange-dim);
+  text-transform: uppercase;
+}
+
+/* ENERGY CHECK-IN */
+.energy-checkin {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.energy-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+
+.energy-buttons { display: flex; gap: 8px; }
+
+.energy-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 12px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.energy-emoji { font-size: 20px; }
+
+.energy-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.energy-btn.active.energy-low { border-color: var(--red); background: rgba(212,74,46,0.08); }
+.energy-btn.active.energy-low .energy-label { color: var(--red); }
+.energy-btn.active.energy-medium { border-color: var(--orange-dim); background: var(--orange-glow); }
+.energy-btn.active.energy-medium .energy-label { color: var(--orange); }
+.energy-btn.active.energy-high { border-color: var(--green); background: rgba(74,148,96,0.08); }
+.energy-btn.active.energy-high .energy-label { color: var(--green); }
+
+.energy-note {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  margin-top: 10px;
+}
+
+/* PROGRESS */
+.progress-section {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.progress-label span {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.progress-pct { color: var(--orange) !important; }
+
+.progress-track {
+  height: 3px;
+  background: var(--border2);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--orange-dim), var(--orange-bright));
+  transition: width 0.6s ease;
+  box-shadow: 0 0 8px rgba(232,120,10,0.5);
+}
+
+.level-info {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.level-info span {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+}
+
+/* CATEGORIES */
+.categories { padding: 20px 24px 0; }
+
+.category { margin-bottom: 6px; border: 1px solid var(--border); overflow: hidden; }
+
+.category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  cursor: pointer;
+  background: var(--surface);
+  transition: background 0.15s;
+  user-select: none;
+  border-left: 3px solid transparent;
+}
+
+.category-header:active { background: var(--surface2); }
+.category-header.open { background: var(--surface2); border-left-color: var(--orange); }
+
+.cat-left { display: flex; align-items: center; gap: 12px; }
+.cat-icon { font-size: 16px; width: 22px; text-align: center; }
+
+.cat-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cream);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cat-right { display: flex; align-items: center; gap: 10px; }
+
+.cat-pts-today {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--orange);
+}
+
+.cat-chevron {
+  font-size: 10px;
+  color: var(--text-dim);
+  transition: transform 0.2s;
+}
+
+.category-header.open .cat-chevron { transform: rotate(180deg); }
+
+.category-body { display: none; border-top: 1px solid var(--border); }
+.category-body.open { display: block; }
+
+/* WIN ITEMS */
+.win-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+  -webkit-user-select: none;
+}
+
+.win-item:last-child { border-bottom: none; }
+.win-item:active { background: rgba(232,120,10,0.05); }
+.win-item.completed { opacity: 0.45; }
+.win-item.completed .win-name { text-decoration: line-through; text-decoration-color: var(--orange-dim); }
+
+.win-left { display: flex; align-items: center; gap: 12px; flex: 1; }
+
+.win-check {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.win-item.completed .win-check { background: var(--orange); border-color: var(--orange); box-shadow: 0 0 10px rgba(232,120,10,0.35); }
+
+.win-check-inner {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bg);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.win-item.completed .win-check-inner { opacity: 1; }
+
+.win-text { flex: 1; }
+.win-name { font-size: 13px; color: var(--text); line-height: 1.3; margin-bottom: 3px; }
+.win-desc { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-dim); letter-spacing: 0.04em; line-height: 1.5; }
+
+.win-pts { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--orange-dim); flex-shrink: 0; padding-left: 10px; font-weight: 500; }
+.win-pts::before { content: '+'; }
+
+/* STREAKS */
+.streak-panel {
+  margin: 16px 24px 0;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--orange);
+}
+
+.streak-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 18px;
+}
+
+.streak-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.streak-item { text-align: center; }
+
+.streak-num {
+  font-family: 'Playfair Display', serif;
+  font-size: 34px;
+  font-weight: 900;
+  color: var(--orange);
+  line-height: 1;
+  margin-bottom: 5px;
+  transition: all 0.3s ease;
+  text-shadow: 0 0 20px rgba(232,120,10,0.3);
+}
+
+.streak-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+/* REWARDS */
+.rewards-section { margin: 16px 24px 0; }
+
+.rewards-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+
+.reward-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  margin-bottom: 6px;
+  background: var(--surface);
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.reward-item.unlocked { border-color: var(--orange-dim); background: var(--orange-glow); border-left: 3px solid var(--orange); }
+
+.reward-item.unlocked::before {
+  content: 'UNLOCKED';
+  position: absolute;
+  top: 0; right: 0;
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 0.15em;
+  color: var(--orange);
+  background: rgba(232,120,10,0.15);
+  padding: 3px 8px;
+}
+
+.reward-left { flex: 1; }
+.reward-name { font-size: 13px; color: var(--cream); margin-bottom: 3px; }
+.reward-desc { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-dim); }
+
+.reward-cost { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 700; color: var(--text-dim); padding-left: 14px; }
+.reward-item.unlocked .reward-cost { color: var(--orange); text-shadow: 0 0 12px rgba(232,120,10,0.3); }
+
+/* BOTTOM NOTE */
+.bottom-note { margin: 20px 24px 0; padding: 18px 20px; border-left: 3px solid var(--orange); background: var(--surface); }
+.bottom-note p { font-family: 'Playfair Display', serif; font-size: 14px; font-style: italic; color: var(--cream-dim); line-height: 1.7; }
+
+.sync-row { margin: 16px 24px 0; display: flex; justify-content: space-between; align-items: center; }
+
+.sync-status { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--green); letter-spacing: 0.12em; }
+.sync-status.syncing { color: var(--orange-dim); }
+.sync-status.error { color: var(--red); }
+
+.reset-btn { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.12em; color: var(--text-dim); background: none; border: 1px solid var(--border2); padding: 8px 14px; cursor: pointer; transition: all 0.15s; text-transform: uppercase; }
+.reset-btn:active { border-color: var(--red); color: var(--red); }
+
+/* TOAST */
+.toast {
+  position: fixed;
+  bottom: calc(var(--nav-h) + 12px);
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--orange);
+  color: var(--bg);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  padding: 10px 22px;
+  transition: transform 0.3s ease;
+  white-space: nowrap;
+  z-index: 100;
+  text-transform: uppercase;
+}
+
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ============================================
+   WORKOUT TAB
+   ============================================ */
+.wo-hero {
+  position: relative;
+  padding: 52px 28px 36px;
+  overflow: hidden;
+}
+
+.wo-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(180,120,40,0.15) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(180,60,40,0.08) 0%, transparent 50%);
+}
+
+.wo-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.wo-hero-content { position: relative; z-index: 2; }
+
+.wo-eyebrow {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.25em;
+  color: #c8a040;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.wo-title {
+  font-family: 'Oswald', sans-serif;
+  font-weight: 700;
+  font-size: clamp(52px, 16vw, 88px);
+  line-height: 0.88;
+  color: #f0ebe0;
+  margin-bottom: 6px;
+}
+
+.wo-title .accent { color: #c8a040; }
+.wo-title .thin { font-weight: 300; color: #444; }
+
+.wo-sub {
+  font-family: 'Oswald', sans-serif;
+  font-weight: 300;
+  font-size: 16px;
+  color: #666;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+
+.wrist-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid rgba(196,97,74,0.35);
+  background: rgba(196,97,74,0.07);
+}
+
+.wrist-badge-text {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: #c4614a;
+  text-transform: uppercase;
+}
+
+/* ROUND BAR */
+.round-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  background: #0e0e0e;
+  border-top: 1px solid #1a1a1a;
+  border-bottom: 1px solid #1a1a1a;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.round-label {
+  font-family: 'Oswald', sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  color: #c8a040;
+  letter-spacing: 0.02em;
+}
+
+.round-sub {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  color: #555;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.round-progress { display: flex; gap: 6px; }
+
+.round-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid #333;
+  transition: all 0.3s ease;
+}
+
+.round-dot.done { background: #c8a040; border-color: #c8a040; }
+.round-dot.active { border-color: #c8a040; }
+
+.progress-count { font-family: 'DM Mono', monospace; font-size: 11px; color: #c8a040; text-align: right; }
+.progress-count span { font-size: 18px; font-family: 'Oswald', sans-serif; font-weight: 600; }
+
+/* EXERCISE CARDS */
+.exercises-section { padding: 8px 0 40px; }
+
+.exercise-card {
+  position: relative;
+  padding: 22px 28px;
+  border-bottom: 1px solid #111;
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 16px;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.15s;
+  -webkit-user-select: none;
+}
+
+.exercise-card:active { background: rgba(200,160,64,0.04); }
+.exercise-card.completed { background: rgba(200,160,64,0.04); }
+
+.exercise-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  transform: scaleY(0);
+  transition: transform 0.3s ease;
+  transform-origin: bottom;
+}
+
+.exercise-card.completed::before { transform: scaleY(1); }
+.exercise-card.squat::before { background: #c8a040; }
+.exercise-card.lunge::before { background: #a06020; }
+.exercise-card.bridge::before { background: #5a8f6a; }
+.exercise-card.leg-raise::before { background: #5a7a9f; }
+.exercise-card.flutter::before { background: #8a5a9f; }
+.exercise-card.wall-sit::before { background: #c4614a; }
+.exercise-card.calf::before { background: #8f7a4a; }
+.exercise-card.march::before { background: #4a8f8f; }
+
+.ex-num {
+  font-family: 'Oswald', sans-serif;
+  font-weight: 700;
+  font-size: 36px;
+  line-height: 1;
+  transition: all 0.3s ease;
+}
+
+.squat .ex-num { color: rgba(200,160,64,0.25); }
+.lunge .ex-num { color: rgba(160,96,32,0.25); }
+.bridge .ex-num { color: rgba(90,143,106,0.25); }
+.leg-raise .ex-num { color: rgba(90,122,159,0.25); }
+.flutter .ex-num { color: rgba(138,90,159,0.25); }
+.wall-sit .ex-num { color: rgba(196,97,74,0.25); }
+.calf .ex-num { color: rgba(143,122,74,0.25); }
+.march .ex-num { color: rgba(74,143,143,0.25); }
+
+.exercise-card.completed .ex-num { opacity: 0.3; }
+
+.ex-info { flex: 1; }
+
+.ex-name {
+  font-family: 'Oswald', sans-serif;
+  font-weight: 600;
+  font-size: 19px;
+  color: #f0ebe0;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+  transition: all 0.2s;
+}
+
+.exercise-card.completed .ex-name { text-decoration: line-through; text-decoration-color: rgba(200,160,64,0.4); color: #555; }
+
+.ex-cue { font-size: 12px; color: #555; line-height: 1.4; font-style: italic; font-weight: 300; }
+
+.ex-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.ex-target-box { text-align: right; }
+
+.ex-reps {
+  font-family: 'Oswald', sans-serif;
+  font-weight: 700;
+  font-size: 24px;
+  color: #f0ebe0;
+  line-height: 1;
+  transition: all 0.2s;
+}
+
+.exercise-card.completed .ex-reps { color: #333; }
+
+.ex-unit { font-family: 'DM Mono', monospace; font-size: 8px; letter-spacing: 0.12em; color: #444; text-transform: uppercase; margin-top: 2px; }
+
+.tick-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid #2a2a2a;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s ease;
+  flex-shrink: 0;
+}
+
+.tick-btn svg { width: 14px; height: 14px; opacity: 0; transition: opacity 0.2s; }
+.exercise-card.completed .tick-btn { background: #c8a040; border-color: #c8a040; }
+.exercise-card.completed .tick-btn svg { opacity: 1; }
+
+/* WORKOUT STOIC */
+.wo-stoic {
+  margin: 0 28px 32px;
+  padding: 24px;
+  background: #0c0a06;
+  border: 1px solid #1e1a12;
+  border-left: 3px solid #c8a040;
+}
+
+.wo-stoic-quote {
+  font-family: 'Oswald', sans-serif;
+  font-weight: 300;
+  font-size: 18px;
+  color: #a09880;
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+.wo-stoic-quote strong { color: #c8a040; font-weight: 600; }
+
+.wo-stoic-attr {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: #444;
+  text-transform: uppercase;
+}
+
+/* REST SCREEN */
+.rest-screen {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: #080808;
+  z-index: 500;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  text-align: center;
+}
+
+.rest-screen.show { display: flex; }
+
+.rest-eyebrow { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.25em; color: #c8a040; text-transform: uppercase; margin-bottom: 24px; }
+.rest-title { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 72px; color: #f0ebe0; line-height: 0.9; margin-bottom: 8px; }
+.rest-title .gold { color: #c8a040; }
+.rest-subtitle { font-family: 'Oswald', sans-serif; font-weight: 300; font-size: 20px; color: #555; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 48px; }
+
+.timer-circle { position: relative; width: 140px; height: 140px; margin: 0 auto 40px; }
+.timer-circle svg { transform: rotate(-90deg); width: 140px; height: 140px; }
+.timer-circle svg circle { fill: none; stroke-width: 3; }
+.timer-track { stroke: #1a1a1a; }
+.timer-fill { stroke: #c8a040; stroke-linecap: round; stroke-dasharray: 408; stroke-dashoffset: 0; transition: stroke-dashoffset 1s linear; }
+.timer-num { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 52px; color: #f0ebe0; line-height: 1; }
+
+.rest-message { font-size: 15px; color: #666; font-style: italic; margin-bottom: 32px; max-width: 280px; line-height: 1.5; }
+
+.skip-btn { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.15em; color: #444; text-transform: uppercase; background: none; border: 1px solid #222; padding: 10px 20px; cursor: pointer; transition: all 0.15s; }
+.skip-btn:active { border-color: #c8a040; color: #c8a040; }
+
+/* CELEBRATION */
+.celebration {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: #080808;
+  z-index: 600;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  text-align: center;
+  overflow: hidden;
+}
+
+.celebration.show { display: flex; }
+
+.confetti-container { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+
+.confetti-piece {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  top: -10px;
+  animation: confettiFall linear forwards;
+  opacity: 0;
+}
+
+@keyframes confettiFall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+}
+
+.cel-eyebrow { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.3em; color: #c8a040; text-transform: uppercase; margin-bottom: 20px; animation: fadeUp 0.5s ease 0.3s both; }
+.cel-title { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: clamp(52px, 15vw, 88px); line-height: 0.88; color: #f0ebe0; margin-bottom: 8px; animation: fadeUp 0.5s ease 0.4s both; }
+.cel-title .gold { color: #c8a040; }
+.cel-sub { font-family: 'Oswald', sans-serif; font-weight: 300; font-size: 18px; color: #666; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 40px; animation: fadeUp 0.5s ease 0.5s both; }
+
+.cel-stats { display: flex; gap: 32px; margin-bottom: 40px; animation: fadeUp 0.5s ease 0.6s both; }
+.cel-stat { text-align: center; }
+.cel-stat-num { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 40px; color: #c8a040; line-height: 1; }
+.cel-stat-label { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.15em; color: #555; text-transform: uppercase; margin-top: 4px; }
+
+.cel-quote { font-family: 'Oswald', sans-serif; font-weight: 300; font-size: 18px; color: #888; font-style: italic; line-height: 1.4; max-width: 300px; margin-bottom: 8px; animation: fadeUp 0.5s ease 0.7s both; }
+.cel-quote strong { color: #c8a040; }
+.cel-attr { font-family: 'DM Mono', monospace; font-size: 9px; color: #444; letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 40px; animation: fadeUp 0.5s ease 0.75s both; }
+
+.cel-action { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 280px; animation: fadeUp 0.5s ease 0.85s both; }
+
+.cel-btn-primary { background: #c8a040; color: #080808; font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.08em; text-transform: uppercase; border: none; padding: 16px 24px; cursor: pointer; transition: opacity 0.15s; }
+.cel-btn-primary:active { opacity: 0.85; }
+.cel-btn-secondary { background: transparent; color: #555; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; border: 1px solid #222; padding: 12px 24px; cursor: pointer; transition: all 0.15s; }
+.cel-btn-secondary:active { border-color: #c8a040; color: #c8a040; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+</style>
 </head>
 <body>
 
@@ -24,88 +926,398 @@
 <!-- APP -->
 <div id="app" style="display:none">
 
-  <!-- HEADER -->
-  <div class="header">
-    <div class="header-top">
-      <div class="header-left">
-        <div class="date-label" id="dateLabel"></div>
-        <div class="stoic-label">Today's Stoic</div>
-        <div class="stoic-today" id="stoicQuote"></div>
-        <div class="stoic-attr" id="stoicAttr"></div>
-      </div>
-      <div class="points-badge">
-        <div class="points-number" id="totalPoints">0</div>
-        <div class="points-label">pts today</div>
-      </div>
-    </div>
-  </div>
+  <!-- ===== WINS TAB ===== -->
+  <div class="tab-view active" id="tab-wins">
 
-  <!-- ENERGY CHECK-IN -->
-  <div class="energy-checkin" id="energyCheckin"></div>
-
-  <!-- WEEKLY PROGRESS -->
-  <div class="progress-section">
-    <div class="progress-label">
-      <span>Weekly Points</span>
-      <span class="progress-pct" id="weeklyPts">0 / 100 pts</span>
-    </div>
-    <div class="progress-track">
-      <div class="progress-fill" id="progressFill" style="width:0%"></div>
-    </div>
-    <div class="level-info">
-      <span id="levelLabel">Level 1 — Beginning</span>
-      <span id="nextLevel">100pts → Level 2</span>
-    </div>
-  </div>
-
-  <!-- CATEGORIES -->
-  <div class="categories" id="categories"></div>
-
-  <!-- STREAKS -->
-  <div class="streak-panel">
-    <div class="streak-title">Current Streaks</div>
-    <div class="streak-grid">
-      <div class="streak-item">
-        <div class="streak-num" id="streakWorkout">0</div>
-        <div class="streak-label">Workout Days</div>
-      </div>
-      <div class="streak-item">
-        <div class="streak-num" id="streakClean">0</div>
-        <div class="streak-label">Clean Days</div>
-      </div>
-      <div class="streak-item">
-        <div class="streak-num" id="streakRead">0</div>
-        <div class="streak-label">Read / Learn</div>
-      </div>
-      <div class="streak-item">
-        <div class="streak-num" id="streakSteps">0</div>
-        <div class="streak-label">7k+ Steps</div>
+    <div class="header">
+      <div class="header-top">
+        <div class="header-left">
+          <div class="date-label" id="dateLabel"></div>
+          <div class="stoic-label">Today's Stoic</div>
+          <div class="stoic-today" id="stoicQuote"></div>
+          <div class="stoic-attr" id="stoicAttr"></div>
+        </div>
+        <div class="points-badge">
+          <div class="points-number" id="totalPoints">0</div>
+          <div class="points-label">pts today</div>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- REWARDS -->
-  <div class="rewards-section">
-    <div class="rewards-title">Rewards — Spend Your Points</div>
-    <div id="rewardsList"></div>
-  </div>
+    <div class="energy-checkin" id="energyCheckin"></div>
 
-  <!-- BOTTOM NOTE -->
-  <div class="bottom-note">
-    <p>"The impediment to action advances action. What stands in the way becomes the way." Every win you tick today is proof of who you are becoming.</p>
-  </div>
+    <div class="progress-section">
+      <div class="progress-label">
+        <span>Weekly Points</span>
+        <span class="progress-pct" id="weeklyPts">0 / 100 pts</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill" style="width:0%"></div>
+      </div>
+      <div class="level-info">
+        <span id="levelLabel">Level 1 — Beginning</span>
+        <span id="nextLevel">100pts → Level 2</span>
+      </div>
+    </div>
 
-  <!-- SYNC STATUS -->
-  <div class="sync-row">
-    <span class="sync-status" id="syncStatus">● Synced</span>
-    <button class="reset-btn" onclick="resetDay()">Reset Today</button>
-  </div>
+    <div class="categories" id="categories"></div>
 
+    <div class="streak-panel">
+      <div class="streak-title">Current Streaks</div>
+      <div class="streak-grid">
+        <div class="streak-item">
+          <div class="streak-num" id="streakWorkout">0</div>
+          <div class="streak-label">Workout Days</div>
+        </div>
+        <div class="streak-item">
+          <div class="streak-num" id="streakClean">0</div>
+          <div class="streak-label">Clean Days</div>
+        </div>
+        <div class="streak-item">
+          <div class="streak-num" id="streakRead">0</div>
+          <div class="streak-label">Read / Learn</div>
+        </div>
+        <div class="streak-item">
+          <div class="streak-num" id="streakSteps">0</div>
+          <div class="streak-label">7k+ Steps</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rewards-section">
+      <div class="rewards-title">Rewards — Spend Your Points</div>
+      <div id="rewardsList"></div>
+    </div>
+
+    <div class="bottom-note">
+      <p>"The impediment to action advances action. What stands in the way becomes the way." Every win you tick today is proof of who you are becoming.</p>
+    </div>
+
+    <div class="sync-row">
+      <span class="sync-status" id="syncStatus">● Synced</span>
+      <button class="reset-btn" onclick="resetDay()">Reset Today</button>
+    </div>
+
+  </div><!-- end wins tab -->
+
+  <!-- ===== WORKOUT TAB ===== -->
+  <div class="tab-view" id="tab-workout">
+
+    <div class="wo-hero">
+      <div class="wo-hero-content">
+        <div class="wo-eyebrow">Kevin · No Equipment · Wrist-Safe · 2 Rounds</div>
+        <div class="wo-title">
+          MOVE<br>
+          <span class="thin">EVERY</span><br>
+          <span class="accent">NIGHT.</span>
+        </div>
+        <div class="wo-sub">20 Minutes · No Excuses</div>
+        <div class="wrist-badge">
+          <span>🤚</span>
+          <span class="wrist-badge-text">Right wrist resting — zero wrist load</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="round-bar">
+      <div>
+        <div class="round-label" id="roundLabel">ROUND 1</div>
+        <div class="round-sub">Tap each exercise when done</div>
+      </div>
+      <div style="text-align:right">
+        <div class="progress-count"><span id="doneCount">0</span>/8</div>
+        <div class="round-progress" style="margin-top:6px;justify-content:flex-end">
+          <div class="round-dot active" id="dot1"></div>
+          <div class="round-dot" id="dot2"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="exercises-section">
+      <div class="exercise-grid" id="exerciseGrid">
+
+        <div class="exercise-card squat" data-id="0" onclick="tickExercise(0)">
+          <div class="ex-num">01</div>
+          <div class="ex-info">
+            <div class="ex-name">Squats</div>
+            <div class="ex-cue">Feet shoulder-width, chest up, sit back. Drive through heels to stand.</div>
+          </div>
+          <div class="ex-right">
+            <div class="ex-target-box"><div class="ex-reps">20</div><div class="ex-unit">reps</div></div>
+            <div class="tick-btn"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l4 4 6-6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+
+        <div class="exercise-card lunge" data-id="1" onclick="tickExercise(1)">
+          <div class="ex-num">02</div>
+          <div class="ex-info">
+            <div class="ex-name">Reverse Lunges</div>
+            <div class="ex-cue">Step back, drop the back knee. Drive front foot to stand.</div>
+          </div>
+          <div class="ex-right">
+            <div class="ex-target-box"><div class="ex-reps">12</div><div class="ex-unit">each leg</div></div>
+            <div class="tick-btn"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l4 4 6-6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+
+        <div class="exercise-card bridge" data-id="2" onclick="tickExercise(2)">
+          <div class="ex-num">03</div>
+          <div class="ex-info">
+            <div class="ex-name">Glute Bridges</div>
+            <div class="ex-cue">On your back, feet flat. Drive hips up, squeeze at top. Hands on stomach.</div>
+          </div>
+          <div class="ex-right">
+            <div class="ex-target-box"><div class="ex-reps">20</div><div class="ex-unit">reps</div></div>
+            <div class="tick-btn"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l4 4 6-6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+
+        <div class="exercise-card leg-raise" data-id="3" onclick="tickExercise(3)">
+          <div class="ex-num">04</div>
+          <div class="ex-info">
+            <div class="ex-name">Leg Raises</div>
+            <div class="ex-cue">Flat on back, legs straight. Raise to 90°, lower slowly. Hands under lower back.</div>
+          </div>
+          <div class="ex-right">
+            <div class="ex-target-box"><div class="ex-reps">15</div><div class="ex-unit">reps</div></div>
+            <div class="tick-btn"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l4 4 6-6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+
+        <div class="exercise-card flutter" data-id="4" onclick="tickExercise(4)">
+          <div class="ex-num">05</div>
+          <div class="ex-info">
+            <div class="ex-name">Flutter Kicks</div>
+            <div class="ex-cue">Legs 6 inches off floor, rapid small kicks. Core tight, lower back pressed down.</div>
+          </div>
+          <div class="ex-right">
+            <div class="ex-target-box"><div class="ex-reps">30</div><div class="ex-unit">seconds</div></div>
+            <div class="tick-btn"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l4 4 6-6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+
+        <div class="exercise-card wall-sit" data-id="5" onclick="tickExercise(5)">
+          <div class="ex-num">06</div>
+          <div class="ex-info">
+            <div class="ex-name">Wall Sit</div>
+            <div class="ex-cue">Back flat against wall, thighs parallel. Arms crossed on chest. Hold and breathe.</div>
+          </div>
+          <div class="ex-right">
+            <div class="ex-target-box"><div class="ex-reps">45</div><div class="ex-unit">seconds</div></div>
+            <div class="tick-btn"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l4 4 6-6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+
+        <div class="exercise-card calf" data-id="6" onclick="tickExercise(6)">
+          <div class="ex-num">07</div>
+          <div class="ex-info">
+            <div class="ex-name">Calf Raises</div>
+            <div class="ex-cue">Rise onto toes, pause, lower slowly. Fingertips on wall for balance only.</div>
+          </div>
+          <div class="ex-right">
+            <div class="ex-target-box"><div class="ex-reps">25</div><div class="ex-unit">reps</div></div>
+            <div class="tick-btn"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l4 4 6-6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+
+        <div class="exercise-card march" data-id="7" onclick="tickExercise(7)">
+          <div class="ex-num">08</div>
+          <div class="ex-info">
+            <div class="ex-name">High Knee March</div>
+            <div class="ex-cue">March on the spot, drive knees to hip height. Pump arms. Get that heart rate up.</div>
+          </div>
+          <div class="ex-right">
+            <div class="ex-target-box"><div class="ex-reps">40</div><div class="ex-unit">seconds</div></div>
+            <div class="tick-btn"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l4 4 6-6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="wo-stoic">
+      <div class="wo-stoic-quote">"It's not because things are difficult that we dare not venture. It's because <strong>we dare not venture</strong> that they are difficult."</div>
+      <div class="wo-stoic-attr">— Seneca · Tick each one. Then tick it in Daily Wins.</div>
+    </div>
+
+  </div><!-- end workout tab -->
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav">
+    <button class="nav-tab active" id="nav-wins" onclick="switchTab('wins')">
+      <span class="nav-icon">🏆</span>
+      <span class="nav-label">Wins</span>
+    </button>
+    <button class="nav-tab" id="nav-workout" onclick="switchTab('workout')">
+      <span class="nav-icon">💪</span>
+      <span class="nav-label">Workout</span>
+    </button>
+  </nav>
+
+</div><!-- end app -->
+
+<!-- REST SCREEN -->
+<div class="rest-screen" id="restScreen">
+  <div class="rest-eyebrow">Round 1 Complete</div>
+  <div class="rest-title">WELL<br><span class="gold">DONE.</span></div>
+  <div class="rest-subtitle">Rest 60 seconds</div>
+  <div class="timer-circle">
+    <svg viewBox="0 0 140 140">
+      <circle class="timer-track" cx="70" cy="70" r="65"/>
+      <circle class="timer-fill" id="timerFill" cx="70" cy="70" r="65"/>
+    </svg>
+    <div class="timer-num" id="timerNum">60</div>
+  </div>
+  <div class="rest-message">Round 2 is where it counts. You're halfway. Keep going.</div>
+  <button class="skip-btn" onclick="startRound2()">Skip rest → Start Round 2</button>
+</div>
+
+<!-- CELEBRATION -->
+<div class="celebration" id="celebration">
+  <div class="confetti-container" id="confetti"></div>
+  <div class="cel-eyebrow">Workout Complete</div>
+  <div class="cel-title">THAT'S<br><span class="gold">THE</span><br>WORK.</div>
+  <div class="cel-sub">2 Rounds · All 8 Exercises</div>
+  <div class="cel-stats">
+    <div class="cel-stat"><div class="cel-stat-num">2</div><div class="cel-stat-label">Rounds</div></div>
+    <div class="cel-stat"><div class="cel-stat-num">16</div><div class="cel-stat-label">Sets Done</div></div>
+    <div class="cel-stat"><div class="cel-stat-num">~20</div><div class="cel-stat-label">Minutes</div></div>
+  </div>
+  <div class="cel-quote">"Waste no more time arguing about what a good man should be. <strong>Be one.</strong>"</div>
+  <div class="cel-attr">— Marcus Aurelius</div>
+  <div class="cel-action">
+    <button class="cel-btn-primary" onclick="goToWins()">Go to Wins → Tick Workout</button>
+    <button class="cel-btn-secondary" onclick="resetWorkout()">Do It Again</button>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="app.js"></script>
+<script>
+// ============================================
+// TAB SWITCHING
+// ============================================
+function switchTab(tab) {
+  document.querySelectorAll('.tab-view').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById('nav-' + tab).classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ============================================
+// WORKOUT LOGIC
+// ============================================
+let currentRound = 1;
+let completed = new Set();
+let restTimer = null;
+const TOTAL = 8;
+const CIRCUMFERENCE = 408;
+
+function tickExercise(id) {
+  if (completed.has(id)) {
+    completed.delete(id);
+  } else {
+    completed.add(id);
+  }
+  const card = document.querySelector(`[data-id="${id}"]`);
+  card.classList.toggle('completed', completed.has(id));
+  updateCount();
+  if (completed.size === TOTAL) {
+    if (currentRound === 1) {
+      setTimeout(showRest, 400);
+    } else {
+      setTimeout(showCelebration, 400);
+    }
+  }
+}
+
+function updateCount() {
+  document.getElementById('doneCount').textContent = completed.size;
+}
+
+function showRest() {
+  document.getElementById('restScreen').classList.add('show');
+  startTimer();
+}
+
+function startTimer() {
+  let seconds = 60;
+  const fill = document.getElementById('timerFill');
+  const num = document.getElementById('timerNum');
+  fill.style.strokeDashoffset = 0;
+  num.textContent = seconds;
+  restTimer = setInterval(() => {
+    seconds--;
+    num.textContent = seconds;
+    const offset = CIRCUMFERENCE * (1 - seconds / 60);
+    fill.style.strokeDashoffset = offset;
+    if (seconds <= 0) {
+      clearInterval(restTimer);
+      startRound2();
+    }
+  }, 1000);
+}
+
+function startRound2() {
+  if (restTimer) clearInterval(restTimer);
+  document.getElementById('restScreen').classList.remove('show');
+  completed.clear();
+  document.querySelectorAll('.exercise-card').forEach(card => card.classList.remove('completed'));
+  currentRound = 2;
+  document.getElementById('roundLabel').textContent = 'ROUND 2';
+  document.getElementById('dot1').classList.add('done');
+  document.getElementById('dot1').classList.remove('active');
+  document.getElementById('dot2').classList.add('active');
+  updateCount();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  showToast('Round 2 — finish strong.');
+}
+
+function showCelebration() {
+  document.getElementById('celebration').classList.add('show');
+  spawnConfetti();
+}
+
+function spawnConfetti() {
+  const container = document.getElementById('confetti');
+  const colors = ['#c8a040', '#f0ebe0', '#c4614a', '#5a8f6a', '#5a7a9f'];
+  for (let i = 0; i < 60; i++) {
+    setTimeout(() => {
+      const piece = document.createElement('div');
+      piece.className = 'confetti-piece';
+      piece.style.left = Math.random() * 100 + 'vw';
+      piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+      piece.style.borderRadius = Math.random() > 0.5 ? '50%' : '0';
+      piece.style.width = (Math.random() * 8 + 4) + 'px';
+      piece.style.height = (Math.random() * 8 + 4) + 'px';
+      piece.style.animationDuration = (Math.random() * 2 + 2) + 's';
+      piece.style.animationDelay = '0s';
+      container.appendChild(piece);
+      setTimeout(() => piece.remove(), 4000);
+    }, i * 40);
+  }
+}
+
+function goToWins() {
+  document.getElementById('celebration').classList.remove('show');
+  switchTab('wins');
+}
+
+function resetWorkout() {
+  document.getElementById('celebration').classList.remove('show');
+  currentRound = 1;
+  completed.clear();
+  document.querySelectorAll('.exercise-card').forEach(c => c.classList.remove('completed'));
+  document.getElementById('roundLabel').textContent = 'ROUND 1';
+  document.getElementById('dot1').classList.remove('done');
+  document.getElementById('dot1').classList.add('active');
+  document.getElementById('dot2').classList.remove('active');
+  updateCount();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+</script>
 </body>
 </html>
