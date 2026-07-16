@@ -83,17 +83,26 @@ const CATEGORIES = [
   },
 ];
 
-// Priced against a realistic week: a solid day is ~60-80pts,
-// so a strong week lands between 400 and 550.
+// A real economy, not a passive threshold: your balance is a rolling
+// 12-week bank (points earned minus points already redeemed, within
+// the same window the rest of the app tracks). Redeeming actually
+// spends it. Priced against a realistic rolling window: a consistent
+// day nets ~50-70pts, so 12 weeks of solid effort banks roughly
+// 2,000-3,000pts — enough to reach every tier here without it being trivial.
 const REWARDS = [
-  { name: 'Early night pass', desc: 'Bed at 9:30pm — no guilt, no to-do list', pts: 150 },
-  { name: 'Guilt-free rest day', desc: 'Skip one workout this week with no guilt or tracking', pts: 250 },
-  { name: 'Choose the weekend activity', desc: 'You pick — football, gym, food, whatever you want', pts: 350 },
-  { name: 'One full morning to yourself', desc: 'Laeeqa holds the fort — you get 2 hours, no obligations', pts: 450 },
-  { name: 'Vietnam treat', desc: 'One meal, experience, or activity just for you in Vietnam', pts: 550 },
+  { id: 'earlynight', name: 'Early Night Pass', desc: 'Bed at 9:30pm — no guilt, no to-do list', pts: 120 },
+  { id: 'restday', name: 'Guilt-Free Rest Day', desc: 'Skip a workout this week — no guilt, no tracking', pts: 180 },
+  { id: 'weekendpick', name: 'Choose the Weekend Activity', desc: 'You pick — football, gym, food, whatever you want', pts: 280 },
+  { id: 'solomorning', name: 'One Morning to Yourself', desc: 'Laeeqa holds the fort — 2 hours, zero obligations', pts: 400 },
+  { id: 'datenight', name: 'Date Night — Your Call', desc: 'Pick the place, pick the plan. Just you and Laeeqa', pts: 520 },
+  { id: 'soloday', name: 'A Full Day Off', desc: 'One entire day that\'s just yours — no plan required', pts: 750 },
+  { id: 'bigtreat', name: 'Something You\'ve Been Wanting', desc: 'A real treat — gear, an experience, a splurge. You earned it', pts: 1000 },
 ];
 
-const DAILY_TARGET = 60;
+// Today's Target scales with how much you actually have to give today —
+// still a real bar to clear at every level, never "just do nothing".
+const DAILY_TARGETS = { low: 30, medium: 60, high: 90 };
+const DAILY_TARGET = DAILY_TARGETS.medium; // fallback for generic copy/defaults
 const WEEKLY_TARGET = 400;
 const HISTORY_DAYS = 84; // 12 weeks kept locally + fetched from server
 const CATEGORY_BONUS_PTS = 8;
@@ -210,6 +219,16 @@ function energyToday() {
   const e = winsOn(state.todayStr).find(id => id.startsWith('energy_'));
   return e ? e.replace('energy_', '') : null;
 }
+// Today's Target for any date, based on the energy level logged that day
+// (or the medium default if none was logged). Used everywhere "did this
+// day hit its target" matters, so a good low-energy day reads as a win,
+// not a shortfall against a flat number that never applied to it.
+function targetForDate(dateStr) {
+  const e = winsOn(dateStr).find(id => id.startsWith('energy_'));
+  const level = e ? e.replace('energy_', '') : null;
+  return DAILY_TARGETS[level] || DAILY_TARGETS.medium;
+}
+function todaysTarget() { return targetForDate(state.todayStr); }
 // Real streak: consecutive days ending today (or yesterday if today isn't done yet).
 function computeStreak(winId) {
   let n = hasWin(state.todayStr, winId) ? 1 : 0;
@@ -239,6 +258,43 @@ function countInLastDays(days, winId) {
     if (hasWin(fmtDate(addDays(parseDate(state.todayStr), -i)), winId)) n++;
   }
   return n;
+}
+
+// ============================================
+// REWARD BANK — a real rolling-window economy.
+// Redemptions are stored as pseudo-wins ('redeem_<id>'), same trick as
+// category bonuses, so they ride the existing offline queue and sync
+// to Supabase with zero schema changes.
+// ============================================
+function lifetimeEarned() {
+  // dayPoints already excludes redeem_/energy_ ids (not in WIN_INDEX),
+  // so this is exactly "real + bonus points earned in the retained window".
+  return Object.keys(state.history).reduce((s, d) => s + dayPoints(d), 0);
+}
+function lifetimeSpent() {
+  let s = 0;
+  Object.keys(state.history).forEach(d => {
+    winsOn(d).forEach(id => {
+      if (id.startsWith('redeem_')) {
+        const r = REWARDS.find(x => x.id === id.slice('redeem_'.length));
+        if (r) s += r.pts;
+      }
+    });
+  });
+  return s;
+}
+function rewardBank() { return Math.max(lifetimeEarned() - lifetimeSpent(), 0); }
+
+function redeemReward(rewardId) {
+  const r = REWARDS.find(x => x.id === rewardId);
+  if (!r) return;
+  if (rewardBank() < r.pts) { showToast('Not enough points yet.'); return; }
+  if (!confirm(`Redeem "${r.name}" for ${r.pts}pts?`)) return;
+  _setWin('redeem_' + r.id, true);
+  sndBonus();
+  showToast(`🎁 Redeemed: ${r.name}`);
+  burstConfettiAt(window.innerWidth / 2, 260, 30, true);
+  renderRewards();
 }
 
 // ============================================
@@ -343,7 +399,7 @@ function streakFlare(n) {
 // ============================================
 function updateAppBadge() {
   if (!('setAppBadge' in navigator)) return;
-  const remaining = Math.max(DAILY_TARGET - getTodayPoints(), 0);
+  const remaining = Math.max(todaysTarget() - getTodayPoints(), 0);
   try {
     if (remaining > 0) navigator.setAppBadge(remaining);
     else if (navigator.clearAppBadge) navigator.clearAppBadge();
@@ -368,7 +424,7 @@ function computeAchievementStats() {
     totalWinsLogged += realIds.length;
     const pts = dayPoints(d);
     if (pts > bestDayPoints) bestDayPoints = pts;
-    if (pts >= DAILY_TARGET) daysHittingTarget++;
+    if (pts >= targetForDate(d)) daysHittingTarget++;
     if (realIds.includes('workout')) workoutCount++;
     if (CATEGORIES.every(cat => cat.wins.every(w => ids.includes(w.id)))) allCategoriesClearedAnyDay = true;
   });
@@ -380,7 +436,7 @@ function computeAchievementStats() {
     let allHit = true;
     for (let i = 0; i < 7; i++) {
       const ds = fmtDate(addDays(start, i));
-      if (ds > state.todayStr || dayPoints(ds) < DAILY_TARGET) { allHit = false; break; }
+      if (ds > state.todayStr || dayPoints(ds) < targetForDate(ds)) { allHit = false; break; }
     }
     if (allHit) perfectWeek = true;
   });
@@ -666,12 +722,18 @@ function getTodayPoints() { return dayPoints(state.todayStr); }
 
 function updateHeader() {
   const todayPts = getTodayPoints();
+  const target = todaysTarget();
   animateNumber(document.getElementById('totalPoints'), todayPts);
 
-  document.getElementById('dailyPts').textContent = `${todayPts} / ${DAILY_TARGET} pts`;
+  document.getElementById('dailyPts').textContent = `${todayPts} / ${target} pts`;
   const dailyFill = document.getElementById('dailyFill');
-  dailyFill.style.width = Math.min((todayPts / DAILY_TARGET) * 100, 100) + '%';
-  dailyFill.classList.toggle('complete', todayPts >= DAILY_TARGET);
+  dailyFill.style.width = Math.min((todayPts / target) * 100, 100) + '%';
+  dailyFill.classList.toggle('complete', todayPts >= target);
+  const levelTag = document.getElementById('targetLevelTag');
+  if (levelTag) {
+    const lvl = energyToday();
+    levelTag.textContent = lvl ? `· ${lvl[0].toUpperCase()}${lvl.slice(1)} energy` : '';
+  }
 
   const weekPts = weekPoints();
   document.getElementById('weeklyPts').textContent = `${weekPts} / ${WEEKLY_TARGET} pts`;
@@ -697,9 +759,9 @@ function setStreak(id, n) {
 }
 
 const ENERGY_HINTS = {
-  low: 'Low battery day. Shrink the target: water, dua, 5-min reflection. Small wins keep the chain alive.',
-  medium: 'Steady. Pick one Body win and one Mind win before tonight.',
-  high: 'Fuel is there. Full workout tonight — make it count.',
+  low: `Target dropped to ${DAILY_TARGETS.low}pts. Water, dua, a short reflection — a few small wins clears it. Protecting the streak matters more than the size of the day.`,
+  medium: `Standard ${DAILY_TARGETS.medium}pt target. One full category plus a bit more gets you there.`,
+  high: `Target raised to ${DAILY_TARGETS.high}pts — fuel's there, use it. Full workout plus a few extras.`,
 };
 
 function renderEnergyCheckin() {
@@ -732,6 +794,8 @@ function setEnergy(level) {
   addWinLocal(today, 'energy_' + level);
   saveLocal();
   renderEnergyCheckin();
+  updateHeader();
+  updateAppBadge();
   pushOp({ t: 'energy', date: today, level });
 }
 
@@ -788,17 +852,44 @@ function renderCategories() {
 }
 
 function renderRewards() {
+  const bank = rewardBank();
+  animateNumber(document.getElementById('rewardBalance'), bank);
+
   const container = document.getElementById('rewardsList');
-  const pts = weekPoints();
-  container.innerHTML = REWARDS.map(r => `
-    <div class="reward-item ${pts >= r.pts ? 'unlocked' : ''}">
-      <div class="reward-left">
-        <div class="reward-name">${r.name}</div>
-        <div class="reward-desc">${r.desc}</div>
-      </div>
-      <div class="reward-cost">${r.pts}</div>
-    </div>
-  `).join('');
+  container.innerHTML = REWARDS.map(r => {
+    const affordable = bank >= r.pts;
+    return `
+      <div class="reward-item ${affordable ? 'unlocked' : ''}">
+        <div class="reward-left">
+          <div class="reward-name">${r.name}</div>
+          <div class="reward-desc">${r.desc}</div>
+        </div>
+        <div class="reward-right">
+          <div class="reward-cost">${r.pts}</div>
+          ${affordable
+            ? `<button class="reward-redeem-btn" onclick="redeemReward('${r.id}')">Redeem</button>`
+            : `<div class="reward-need">${r.pts - bank} more</div>`}
+        </div>
+      </div>`;
+  }).join('');
+
+  const histEl = document.getElementById('redemptionHistory');
+  if (!histEl) return;
+  const redemptions = [];
+  Object.keys(state.history).sort().reverse().forEach(d => {
+    winsOn(d).forEach(id => {
+      if (!id.startsWith('redeem_')) return;
+      const r = REWARDS.find(x => x.id === id.slice('redeem_'.length));
+      redemptions.push({ date: d, name: r ? r.name : 'Redeemed reward', pts: r ? r.pts : 0 });
+    });
+  });
+  histEl.innerHTML = redemptions.length
+    ? `<div class="redeem-hist-title">Redeemed</div>` + redemptions.slice(0, 10).map(h => {
+        const dt = parseDate(h.date);
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return `<div class="redeem-hist-item"><span>${h.name}</span><span>${dt.getDate()} ${months[dt.getMonth()]} · -${h.pts}pts</span></div>`;
+      }).join('')
+    : '';
 }
 
 function toggleCat(id) {
@@ -839,9 +930,10 @@ function toggleWin(winId, evt) {
     sndTick();
     if (evt) burstConfettiAt(evt.clientX, evt.clientY, 14);
     const now = prevPts + win.pts;
-    if (prevPts < DAILY_TARGET && now >= DAILY_TARGET) {
+    const target = todaysTarget();
+    if (prevPts < target && now >= target) {
       sndTarget();
-      showToast(`🎯 ${DAILY_TARGET}pts — daily target hit. Strong day.`);
+      showToast(`🎯 ${target}pts — daily target hit. Strong day.`);
       burstConfettiAt(window.innerWidth / 2, 160, 40, true);
     } else {
       showToast(`+${win.pts}pts — well done.`);
@@ -925,11 +1017,15 @@ function setDateAndStoic() {
 // ============================================
 // JOURNEY TAB — history, insights, reflection
 // ============================================
-function heatClass(pts) {
+// Relative to that day's own target, so a strong low-energy day reads
+// as a win instead of "meh" against a flat number that never applied.
+function heatClass(dateStr) {
+  const pts = dayPoints(dateStr);
+  const target = targetForDate(dateStr);
   if (pts <= 0) return 'h0';
-  if (pts < 25) return 'h1';
-  if (pts < 50) return 'h2';
-  if (pts < DAILY_TARGET) return 'h3';
+  if (pts < target * 0.4) return 'h1';
+  if (pts < target * 0.8) return 'h2';
+  if (pts < target) return 'h3';
   return 'h4';
 }
 
@@ -958,20 +1054,21 @@ function renderJourney() {
   // --- Last 7 days bars ---
   const dayLetters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   let barsHtml = '';
-  let maxPts = DAILY_TARGET;
+  let maxPts = DAILY_TARGETS.medium;
   const week = [];
   for (let i = 6; i >= 0; i--) {
     const d = addDays(today, -i);
-    const pts = dayPoints(fmtDate(d));
+    const ds = fmtDate(d);
+    const pts = dayPoints(ds);
     maxPts = Math.max(maxPts, pts);
-    week.push({ d, pts, isToday: i === 0 });
+    week.push({ d, ds, pts, isToday: i === 0 });
   }
-  week.forEach(({ d, pts, isToday }) => {
+  week.forEach(({ d, ds, pts, isToday }) => {
     const h = Math.max(Math.round((pts / maxPts) * 100), 3);
     barsHtml += `
       <div class="j-bar-col">
         <div class="j-bar-val">${pts > 0 ? pts : ''}</div>
-        <div class="j-bar-track"><div class="j-bar ${isToday ? 'today' : ''} ${pts >= DAILY_TARGET ? 'hit' : ''}" style="height:${h}%"></div></div>
+        <div class="j-bar-track"><div class="j-bar ${isToday ? 'today' : ''} ${pts >= targetForDate(ds) ? 'hit' : ''}" style="height:${h}%"></div></div>
         <div class="j-bar-day ${isToday ? 'today' : ''}">${dayLetters[d.getDay()]}</div>
       </div>`;
   });
@@ -985,7 +1082,7 @@ function renderJourney() {
       const d = addDays(gridStart, w * 7 + day);
       const ds = fmtDate(d);
       if (ds > state.todayStr) { cells += '<div class="hm-cell future"></div>'; continue; }
-      cells += `<div class="hm-cell ${heatClass(dayPoints(ds))} ${ds === state.todayStr ? 'today' : ''}"></div>`;
+      cells += `<div class="hm-cell ${heatClass(ds)} ${ds === state.todayStr ? 'today' : ''}"></div>`;
     }
   }
   document.getElementById('heatmap').innerHTML = cells;
