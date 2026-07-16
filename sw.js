@@ -1,6 +1,6 @@
 // Daily Wins service worker — offline-first app shell.
 // Bump the version to force clients onto new assets.
-const CACHE = 'daily-wins-v1';
+const CACHE = 'daily-wins-v2';
 
 const APP_SHELL = [
   './',

@@ -96,10 +96,36 @@ const REWARDS = [
 const DAILY_TARGET = 60;
 const WEEKLY_TARGET = 400;
 const HISTORY_DAYS = 84; // 12 weeks kept locally + fetched from server
+const CATEGORY_BONUS_PTS = 8;
 
 // Fast lookup: win_id -> { ...win, catId }
 const WIN_INDEX = {};
 CATEGORIES.forEach(c => c.wins.forEach(w => { WIN_INDEX[w.id] = { ...w, catId: c.id }; }));
+// Category-clear bonus — a pseudo-win, synced and scored exactly like a real one.
+CATEGORIES.forEach(c => {
+  WIN_INDEX['bonus_' + c.id] = {
+    id: 'bonus_' + c.id, catId: c.id,
+    name: c.name + ' cleared', desc: 'Bonus for finishing every win in this category today',
+    pts: CATEGORY_BONUS_PTS,
+  };
+});
+
+// ============================================
+// ACHIEVEMENTS
+// ============================================
+const ACHIEVEMENTS = [
+  { id: 'first_win', icon: '🌱', name: 'First Step', desc: 'Log your very first win', check: s => s.totalWinsLogged >= 1 },
+  { id: 'streak3', icon: '🔥', name: 'On Fire', desc: 'Any streak reaches 3 days', check: s => s.maxStreakEver >= 3, progress: s => [Math.min(s.maxStreakEver, 3), 3] },
+  { id: 'streak7', icon: '🔥', name: 'Week Warrior', desc: 'Any streak reaches 7 days', check: s => s.maxStreakEver >= 7, progress: s => [Math.min(s.maxStreakEver, 7), 7] },
+  { id: 'streak14', icon: '🔥', name: 'Unbreakable', desc: 'Any streak reaches 14 days', check: s => s.maxStreakEver >= 14, progress: s => [Math.min(s.maxStreakEver, 14), 14] },
+  { id: 'century', icon: '💯', name: 'Century', desc: 'Score 100+ points in one day', check: s => s.bestDayPoints >= 100, progress: s => [Math.min(s.bestDayPoints, 100), 100] },
+  { id: 'target5', icon: '🎯', name: 'Sharp Shooter', desc: 'Hit your daily target 5 times', check: s => s.daysHittingTarget >= 5, progress: s => [Math.min(s.daysHittingTarget, 5), 5] },
+  { id: 'perfectweek', icon: '🏆', name: 'Perfect Week', desc: 'Hit your daily target every day of a full week', check: s => s.perfectWeek },
+  { id: 'ironwill', icon: '💪', name: 'Iron Will', desc: 'Complete 10 workouts', check: s => s.workoutCount >= 10, progress: s => [Math.min(s.workoutCount, 10), 10] },
+  { id: 'cleanmind', icon: '🛡️', name: 'Clear Mind', desc: '14 consecutive clean days', check: s => s.cleanStreakEver >= 14, progress: s => [Math.min(s.cleanStreakEver, 14), 14] },
+  { id: 'thinker', icon: '📖', name: 'Deep Thinker', desc: 'Write 10 reflections', check: s => s.reflectionCount >= 10, progress: s => [Math.min(s.reflectionCount, 10), 10] },
+  { id: 'allrounder', icon: '🌟', name: 'All-Rounder', desc: 'Clear every category in a single day', check: s => s.allCategoriesClearedAnyDay },
+];
 
 // ============================================
 // DATES
@@ -132,6 +158,8 @@ const LS = {
   queue: 'dw_queue_v1',
   reflect: 'dw_reflect_v1',
   workout: 'dw_workout_v1',
+  sound: 'dw_sound_v1',
+  achieve: 'dw_achievements_v1',
 };
 
 function lsGet(k, fallback) {
@@ -143,13 +171,15 @@ function lsSet(k, v) {
 }
 
 let state = {
-  history: {},              // 'YYYY-MM-DD' -> [win_id, ...] (completed, incl. energy_*)
+  history: {},              // 'YYYY-MM-DD' -> [win_id, ...] (completed, incl. energy_* and bonus_*)
   todayStr: getTodayStr(),
   weekStr: getWeekStr(),
 };
 
 let openCat = 'body';       // which category accordion is open
 let currentTab = 'wins';
+let popId = null;           // win row to play a pop animation on next render
+let soundOn = true;
 
 function saveLocal() { lsSet(LS.history, state.history); }
 
@@ -191,12 +221,296 @@ function computeStreak(winId) {
   }
   return n;
 }
+// Longest-ever consecutive run for a win, anywhere in the retained history window.
+function bestStreakEver(winId) {
+  const dates = Object.keys(state.history).filter(d => hasWin(d, winId)).sort();
+  if (!dates.length) return 0;
+  let best = 1, cur = 1;
+  for (let i = 1; i < dates.length; i++) {
+    const diff = (parseDate(dates[i]) - parseDate(dates[i - 1])) / 86400000;
+    cur = diff === 1 ? cur + 1 : 1;
+    if (cur > best) best = cur;
+  }
+  return best;
+}
 function countInLastDays(days, winId) {
   let n = 0;
   for (let i = 0; i < days; i++) {
     if (hasWin(fmtDate(addDays(parseDate(state.todayStr), -i)), winId)) n++;
   }
   return n;
+}
+
+// ============================================
+// SOUND — tiny synthesized cues, no assets needed.
+// Respects a mute toggle; requires a user gesture
+// on iOS, which every trigger point already is.
+// ============================================
+let audioCtx = null;
+function getAudioCtx() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!audioCtx) audioCtx = new Ctx();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+function playTone(freqs, opts = {}) {
+  if (!soundOn) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const { duration = 0.12, type = 'sine', gain = 0.07, stagger = 0.07 } = opts;
+  freqs.forEach((f, i) => {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = f;
+    const start = ctx.currentTime + i * stagger;
+    g.gain.setValueAtTime(0, start);
+    g.gain.linearRampToValueAtTime(gain, start + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + duration + 0.03);
+  });
+}
+function sndTick() { playTone([660], { duration: 0.09, gain: 0.06 }); }
+function sndUntick() { playTone([320], { duration: 0.08, gain: 0.05 }); }
+function sndTarget() { playTone([523.25, 659.25, 783.99], { duration: 0.35, type: 'triangle', gain: 0.07 }); }
+function sndBonus() { playTone([440, 554.37, 659.25], { duration: 0.28, type: 'triangle', gain: 0.06 }); }
+function sndBadge() { playTone([523.25, 659.25, 783.99, 1046.5], { duration: 0.4, type: 'triangle', gain: 0.08 }); }
+
+function toggleSound() {
+  soundOn = !soundOn;
+  lsSet(LS.sound, soundOn);
+  const btn = document.getElementById('soundToggle');
+  if (btn) btn.textContent = soundOn ? '🔊' : '🔇';
+  if (soundOn) playTone([660], { duration: 0.08, gain: 0.05 });
+}
+
+// ============================================
+// MICRO-CELEBRATIONS — confetti bursts from a point
+// ============================================
+function burstConfettiAt(x, y, count = 14, big = false) {
+  const colors = ['#e8780a', '#ff9a2e', '#f0e8d8', '#4a9460', '#d44a2e'];
+  for (let i = 0; i < count; i++) {
+    const p = document.createElement('div');
+    p.className = 'burst-particle';
+    const angle = Math.random() * Math.PI * 2;
+    const dist = (big ? 90 : 40) + Math.random() * (big ? 90 : 45);
+    p.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+    p.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
+    p.style.left = x + 'px';
+    p.style.top = y + 'px';
+    p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    const size = (big ? Math.random() * 6 + 4 : Math.random() * 4 + 3);
+    p.style.width = size + 'px';
+    p.style.height = size + 'px';
+    p.style.borderRadius = Math.random() > 0.5 ? '50%' : '1px';
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 800);
+  }
+}
+
+// ============================================
+// ANIMATED NUMBERS — count up instead of snapping
+// ============================================
+function animateNumber(el, to, duration = 500) {
+  if (!el) return;
+  const from = parseInt(el.textContent, 10);
+  const start0 = Number.isFinite(from) ? from : 0;
+  if (start0 === to) { el.textContent = to; return; }
+  const t0 = performance.now();
+  function step(now) {
+    const p = Math.min((now - t0) / duration, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(start0 + (to - start0) * eased);
+    if (p < 1) requestAnimationFrame(step);
+    else el.textContent = to;
+  }
+  requestAnimationFrame(step);
+}
+
+function streakFlare(n) {
+  if (n >= 14) return '🔥🔥🔥';
+  if (n >= 7) return '🔥🔥';
+  if (n >= 3) return '🔥';
+  return '';
+}
+
+// ============================================
+// APP ICON BADGE — nudges you back in without
+// a native push server. iOS 16.4+, installed PWAs.
+// ============================================
+function updateAppBadge() {
+  if (!('setAppBadge' in navigator)) return;
+  const remaining = Math.max(DAILY_TARGET - getTodayPoints(), 0);
+  try {
+    if (remaining > 0) navigator.setAppBadge(remaining);
+    else if (navigator.clearAppBadge) navigator.clearAppBadge();
+    else navigator.setAppBadge(0);
+  } catch (e) { /* not fatal */ }
+}
+
+// ============================================
+// ACHIEVEMENTS — evaluation & unlock celebration
+// ============================================
+function computeAchievementStats() {
+  const dates = Object.keys(state.history).sort();
+  let totalWinsLogged = 0;
+  let bestDayPoints = 0;
+  let daysHittingTarget = 0;
+  let workoutCount = 0;
+  let allCategoriesClearedAnyDay = false;
+
+  dates.forEach(d => {
+    const ids = state.history[d];
+    const realIds = ids.filter(id => !id.startsWith('energy_') && !id.startsWith('bonus_'));
+    totalWinsLogged += realIds.length;
+    const pts = dayPoints(d);
+    if (pts > bestDayPoints) bestDayPoints = pts;
+    if (pts >= DAILY_TARGET) daysHittingTarget++;
+    if (realIds.includes('workout')) workoutCount++;
+    if (CATEGORIES.every(cat => cat.wins.every(w => ids.includes(w.id)))) allCategoriesClearedAnyDay = true;
+  });
+
+  let perfectWeek = false;
+  const weekStarts = new Set(dates.map(d => getWeekStr(d)));
+  weekStarts.forEach(ws => {
+    const start = parseDate(ws);
+    let allHit = true;
+    for (let i = 0; i < 7; i++) {
+      const ds = fmtDate(addDays(start, i));
+      if (ds > state.todayStr || dayPoints(ds) < DAILY_TARGET) { allHit = false; break; }
+    }
+    if (allHit) perfectWeek = true;
+  });
+
+  const maxStreakEver = Math.max(
+    bestStreakEver('workout'), bestStreakEver('noporn'), bestStreakEver('read'), bestStreakEver('steps')
+  );
+
+  return {
+    totalWinsLogged, bestDayPoints, daysHittingTarget, workoutCount, allCategoriesClearedAnyDay, perfectWeek,
+    maxStreakEver, cleanStreakEver: bestStreakEver('noporn'),
+    reflectionCount: Object.keys(lsGet(LS.reflect, {})).length,
+  };
+}
+
+let badgeQueue = [];
+function evaluateAchievements(announce) {
+  const stats = computeAchievementStats();
+  const unlocked = lsGet(LS.achieve, {});
+  let changed = false;
+  ACHIEVEMENTS.forEach(a => {
+    if (!unlocked[a.id] && a.check(stats)) {
+      unlocked[a.id] = state.todayStr;
+      changed = true;
+      if (announce) queueBadgeCelebration(a);
+    }
+  });
+  if (changed) lsSet(LS.achieve, unlocked);
+  return unlocked;
+}
+
+function queueBadgeCelebration(a) {
+  badgeQueue.push(a);
+  if (badgeQueue.length === 1) showNextBadge();
+}
+function showNextBadge() {
+  if (!badgeQueue.length) return;
+  const a = badgeQueue[0];
+  document.getElementById('buIcon').textContent = a.icon;
+  document.getElementById('buName').textContent = a.name;
+  document.getElementById('buDesc').textContent = a.desc;
+  document.getElementById('badgeUnlock').classList.add('show');
+  sndBadge();
+  burstConfettiAt(window.innerWidth / 2, window.innerHeight * 0.36, 30, true);
+}
+function dismissBadgeUnlock() {
+  document.getElementById('badgeUnlock').classList.remove('show');
+  badgeQueue.shift();
+  setTimeout(() => { if (badgeQueue.length) showNextBadge(); }, 350);
+}
+
+function renderAchievements() {
+  const el = document.getElementById('achGrid');
+  if (!el) return;
+  const unlocked = lsGet(LS.achieve, {});
+  const stats = computeAchievementStats();
+  el.innerHTML = ACHIEVEMENTS.map(a => {
+    const isUnlocked = !!unlocked[a.id];
+    let sub = a.desc;
+    if (!isUnlocked && a.progress) {
+      const [cur, tgt] = a.progress(stats);
+      sub = `${cur} / ${tgt}`;
+    }
+    return `
+      <div class="ach-tile ${isUnlocked ? 'unlocked' : ''}">
+        <div class="ach-icon">${isUnlocked ? a.icon : '🔒'}</div>
+        <div class="ach-name">${a.name}</div>
+        <div class="ach-desc">${sub}</div>
+      </div>`;
+  }).join('');
+  const titleEl = document.getElementById('achSectionTitle');
+  if (titleEl) {
+    const count = ACHIEVEMENTS.filter(a => unlocked[a.id]).length;
+    titleEl.textContent = `Achievements — ${count} / ${ACHIEVEMENTS.length}`;
+  }
+}
+
+// ============================================
+// WELCOME BACK CARD — the dopamine hit on open
+// ============================================
+function timeGreeting() {
+  const h = new Date().getHours();
+  if (h < 5) return 'Still up, Kevin?';
+  if (h < 12) return 'Good morning, Kevin.';
+  if (h < 17) return 'Good afternoon, Kevin.';
+  if (h < 21) return 'Good evening, Kevin.';
+  return 'Night check-in, Kevin.';
+}
+
+function buildWelcomeRecap() {
+  const yestStr = fmtDate(addDays(parseDate(state.todayStr), -1));
+  const dayBeforeStr = fmtDate(addDays(parseDate(state.todayStr), -2));
+  const yestPts = dayPoints(yestStr);
+  const dayBeforePts = dayPoints(dayBeforeStr);
+  const todayPts = getTodayPoints();
+
+  let compareLine;
+  if (todayPts > 0) {
+    compareLine = `Today so far: ${todayPts}pts. Keep stacking.`;
+  } else if (yestPts === 0 && dayBeforePts === 0) {
+    compareLine = "Fresh page today. Let's write something on it.";
+  } else if (yestPts > dayBeforePts) {
+    compareLine = `Yesterday: ${yestPts}pts — trending up.`;
+  } else if (yestPts < dayBeforePts) {
+    compareLine = `Yesterday: ${yestPts}pts. Today's the bounce-back.`;
+  } else {
+    compareLine = `Yesterday: ${yestPts}pts — steady.`;
+  }
+
+  const bestStreak = Math.max(
+    computeStreak('workout'), computeStreak('noporn'), computeStreak('read'), computeStreak('steps')
+  );
+
+  return { greeting: timeGreeting(), compareLine, bestStreak };
+}
+
+function showWelcomeCard() {
+  const card = document.getElementById('welcomeCard');
+  if (!card) return;
+  const r = buildWelcomeRecap();
+  document.getElementById('wcDate').textContent = document.getElementById('dateLabel').textContent;
+  document.getElementById('wcGreeting').textContent = r.greeting;
+  document.getElementById('wcFlame').textContent = r.bestStreak >= 3
+    ? `${streakFlare(r.bestStreak)} ${r.bestStreak}-day streak — protect it.`
+    : (r.bestStreak > 0 ? `${r.bestStreak}-day streak — building.` : 'Start your streak today.');
+  document.getElementById('wcLine').textContent = r.compareLine;
+  card.classList.add('show');
+}
+function dismissWelcome() {
+  document.getElementById('welcomeCard').classList.remove('show');
 }
 
 // ============================================
@@ -352,13 +666,13 @@ function getTodayPoints() { return dayPoints(state.todayStr); }
 
 function updateHeader() {
   const todayPts = getTodayPoints();
-  document.getElementById('totalPoints').textContent = todayPts;
+  animateNumber(document.getElementById('totalPoints'), todayPts);
 
-  // Daily target bar
   document.getElementById('dailyPts').textContent = `${todayPts} / ${DAILY_TARGET} pts`;
-  document.getElementById('dailyFill').style.width = Math.min((todayPts / DAILY_TARGET) * 100, 100) + '%';
+  const dailyFill = document.getElementById('dailyFill');
+  dailyFill.style.width = Math.min((todayPts / DAILY_TARGET) * 100, 100) + '%';
+  dailyFill.classList.toggle('complete', todayPts >= DAILY_TARGET);
 
-  // Weekly bar
   const weekPts = weekPoints();
   document.getElementById('weeklyPts').textContent = `${weekPts} / ${WEEKLY_TARGET} pts`;
   document.getElementById('progressFill').style.width = Math.min((weekPts / WEEKLY_TARGET) * 100, 100) + '%';
@@ -370,10 +684,16 @@ function updateHeader() {
     ? 'Max level — hold the line'
     : `${level * 100 - weekPts}pts → Level ${level + 1}`;
 
-  document.getElementById('streakWorkout').textContent = computeStreak('workout');
-  document.getElementById('streakClean').textContent = computeStreak('noporn');
-  document.getElementById('streakRead').textContent = computeStreak('read');
-  document.getElementById('streakSteps').textContent = computeStreak('steps');
+  setStreak('streakWorkout', computeStreak('workout'));
+  setStreak('streakClean', computeStreak('noporn'));
+  setStreak('streakRead', computeStreak('read'));
+  setStreak('streakSteps', computeStreak('steps'));
+}
+
+function setStreak(id, n) {
+  animateNumber(document.getElementById(id), n);
+  const flareEl = document.getElementById(id + 'Flare');
+  if (flareEl) flareEl.textContent = streakFlare(n);
 }
 
 const ENERGY_HINTS = {
@@ -423,6 +743,7 @@ function renderCategories() {
     const catPtsToday = cat.wins
       .filter(w => hasWin(state.todayStr, w.id))
       .reduce((sum, w) => sum + w.pts, 0);
+    const bonusEarned = hasWin(state.todayStr, 'bonus_' + cat.id);
 
     const div = document.createElement('div');
     div.className = 'category';
@@ -435,6 +756,7 @@ function renderCategories() {
           <span class="cat-name">${cat.name}</span>
         </div>
         <div class="cat-right">
+          ${bonusEarned ? `<span class="cat-star">⭐</span>` : ''}
           ${catPtsToday > 0 ? `<span class="cat-pts-today">+${catPtsToday}pts</span>` : ''}
           <span class="cat-chevron">▼</span>
         </div>
@@ -443,9 +765,9 @@ function renderCategories() {
         ${cat.wins.map(win => `
           <div class="win-item ${hasWin(state.todayStr, win.id) ? 'completed' : ''}"
                id="win-${win.id}"
-               onclick="toggleWin('${win.id}')">
+               onclick="toggleWin('${win.id}', event)">
             <div class="win-left">
-              <div class="win-check">
+              <div class="win-check" ${win.id === popId ? 'style="animation:winPop 0.4s ease;"' : ''}>
                 <div class="win-check-inner"></div>
               </div>
               <div class="win-text">
@@ -456,10 +778,13 @@ function renderCategories() {
             <div class="win-pts">${win.pts}</div>
           </div>
         `).join('')}
+        ${bonusEarned ? `<div class="cat-bonus">⭐ ${cat.name} cleared — +${CATEGORY_BONUS_PTS} bonus earned</div>` : ''}
       </div>
     `;
     container.appendChild(div);
   });
+
+  popId = null;
 }
 
 function renderRewards() {
@@ -481,34 +806,88 @@ function toggleCat(id) {
   renderCategories();
 }
 
-function toggleWin(winId, silent) {
-  const win = WIN_INDEX[winId];
-  if (!win) return;
+// Core state mutation shared by user taps and auto-logged wins.
+function _setWin(winId, done) {
   const today = state.todayStr;
-  const was = hasWin(today, winId);
-  const prevPts = getTodayPoints();
-
-  if (was) {
-    removeWinLocal(today, winId);
-    if (!silent) showToast(`-${win.pts}pts removed`);
-  } else {
-    addWinLocal(today, winId);
-    if (!silent) {
-      const now = prevPts + win.pts;
-      if (prevPts < DAILY_TARGET && now >= DAILY_TARGET) {
-        showToast(`🎯 ${DAILY_TARGET}pts — daily target hit. Strong day.`);
-      } else {
-        showToast(`+${win.pts}pts — well done.`);
-      }
-    }
-  }
-
+  if (done) addWinLocal(today, winId);
+  else removeWinLocal(today, winId);
   saveLocal();
+  pushOp({ t: 'win', date: today, id: winId, done });
+}
+
+function _afterWinChange(catId) {
   renderCategories();
   updateHeader();
   renderRewards();
   renderJourney();
-  pushOp({ t: 'win', date: today, id: winId, done: !was });
+  syncCategoryBonus(catId);
+  evaluateAchievements(true);
+  updateAppBadge();
+}
+
+function toggleWin(winId, evt) {
+  const win = WIN_INDEX[winId];
+  if (!win) return;
+  const was = hasWin(state.todayStr, winId);
+  const prevPts = getTodayPoints();
+  const done = !was;
+
+  if (done) popId = winId;
+  _setWin(winId, done);
+
+  if (done) {
+    sndTick();
+    if (evt) burstConfettiAt(evt.clientX, evt.clientY, 14);
+    const now = prevPts + win.pts;
+    if (prevPts < DAILY_TARGET && now >= DAILY_TARGET) {
+      sndTarget();
+      showToast(`🎯 ${DAILY_TARGET}pts — daily target hit. Strong day.`);
+      burstConfettiAt(window.innerWidth / 2, 160, 40, true);
+    } else {
+      showToast(`+${win.pts}pts — well done.`);
+    }
+  } else {
+    sndUntick();
+    showToast(`-${win.pts}pts removed`);
+  }
+
+  _afterWinChange(win.catId);
+}
+
+// Programmatic win logging (workout complete, reflection saved) —
+// same effects minus the tap-position confetti.
+function autoLogWin(winId) {
+  if (hasWin(state.todayStr, winId)) return false;
+  const win = WIN_INDEX[winId];
+  if (!win) return false;
+  popId = winId;
+  _setWin(winId, true);
+  sndTick();
+  _afterWinChange(win.catId);
+  return true;
+}
+
+function syncCategoryBonus(catId) {
+  const cat = CATEGORIES.find(c => c.id === catId);
+  if (!cat) return;
+  const bonusId = 'bonus_' + catId;
+  const allDone = cat.wins.every(w => hasWin(state.todayStr, w.id));
+  const hasBonus = hasWin(state.todayStr, bonusId);
+
+  if (allDone && !hasBonus) {
+    _setWin(bonusId, true);
+    sndBonus();
+    showToast(`⭐ ${cat.name} cleared — +${CATEGORY_BONUS_PTS} bonus`);
+    burstConfettiAt(window.innerWidth / 2, 220, 26, true);
+    renderCategories();
+    updateHeader();
+    renderRewards();
+  } else if (!allDone && hasBonus) {
+    _setWin(bonusId, false);
+    renderCategories();
+    updateHeader();
+    renderRewards();
+  }
 }
 
 function resetDay() {
@@ -516,6 +895,7 @@ function resetDay() {
   delete state.history[state.todayStr];
   saveLocal();
   renderAll();
+  updateAppBadge();
   showToast('Today reset. Start fresh.');
   pushOp({ t: 'reset', date: state.todayStr });
 }
@@ -561,15 +941,19 @@ function renderJourney() {
   // --- Stat tiles ---
   const wk = weekPoints();
   let best = 0;
-  for (let i = 0; i < 30; i++) best = Math.max(best, dayPoints(fmtDate(addDays(today, -i))));
+  for (let i = 0; i < 84; i++) best = Math.max(best, dayPoints(fmtDate(addDays(today, -i))));
   const workouts30 = countInLastDays(30, 'workout');
   const clean30 = countInLastDays(30, 'noporn');
   document.getElementById('journeyStats').innerHTML = `
-    <div class="j-tile"><div class="j-num">${wk}</div><div class="j-lbl">Points this week</div></div>
-    <div class="j-tile"><div class="j-num">${best}</div><div class="j-lbl">Best day (30d)</div></div>
-    <div class="j-tile"><div class="j-num">${workouts30}</div><div class="j-lbl">Workouts (30d)</div></div>
-    <div class="j-tile"><div class="j-num">${clean30}</div><div class="j-lbl">Clean days (30d)</div></div>
+    <div class="j-tile"><div class="j-num" id="jStatWeek">0</div><div class="j-lbl">Points this week</div></div>
+    <div class="j-tile"><div class="j-num" id="jStatBest">0</div><div class="j-lbl">Best day (12wk)</div></div>
+    <div class="j-tile"><div class="j-num" id="jStatWo">0</div><div class="j-lbl">Workouts (30d)</div></div>
+    <div class="j-tile"><div class="j-num" id="jStatClean">0</div><div class="j-lbl">Clean days (30d)</div></div>
   `;
+  animateNumber(document.getElementById('jStatWeek'), wk);
+  animateNumber(document.getElementById('jStatBest'), best);
+  animateNumber(document.getElementById('jStatWo'), workouts30);
+  animateNumber(document.getElementById('jStatClean'), clean30);
 
   // --- Last 7 days bars ---
   const dayLetters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -605,6 +989,9 @@ function renderJourney() {
     }
   }
   document.getElementById('heatmap').innerHTML = cells;
+
+  // --- Achievements ---
+  renderAchievements();
 
   // --- Reflection list (textarea content is preserved separately) ---
   const reflections = lsGet(LS.reflect, {});
@@ -644,8 +1031,7 @@ function saveReflection() {
   input.blur();
 
   // A real reflection earns the 'reflect' win automatically
-  if (txt.length >= 20 && !hasWin(state.todayStr, 'reflect')) {
-    toggleWin('reflect', true);
+  if (txt.length >= 20 && autoLogWin('reflect')) {
     showToast('Reflection saved — +6pts logged.');
   } else {
     showToast(txt ? 'Reflection saved.' : 'Reflection cleared.');
@@ -693,10 +1079,11 @@ function applyWorkoutUI() {
   dot2.classList.toggle('active', wo.round === 2);
 }
 
-function tickExercise(id) {
+function tickExercise(id, evt) {
   const i = wo.done.indexOf(id);
-  if (i >= 0) wo.done.splice(i, 1);
-  else wo.done.push(id);
+  const nowDone = i < 0;
+  if (i >= 0) { wo.done.splice(i, 1); sndUntick(); }
+  else { wo.done.push(id); sndTick(); if (evt) burstConfettiAt(evt.clientX, evt.clientY, 12); }
   saveWorkoutLocal();
   applyWorkoutUI();
   if (wo.done.length === WO_TOTAL) {
@@ -740,10 +1127,9 @@ function startRound2() {
 function showCelebration() {
   document.getElementById('celebration').classList.add('show');
   spawnConfetti();
-  // Auto-log the workout win — no need to remember to tick it
+  sndTarget();
   const note = document.getElementById('celAutolog');
-  if (!hasWin(state.todayStr, 'workout')) {
-    toggleWin('workout', true);
+  if (autoLogWin('workout')) {
     note.textContent = '✓ Workout win logged automatically — +15pts';
   } else {
     note.textContent = '✓ Workout win already logged today';
@@ -821,7 +1207,9 @@ function checkRollover() {
     setDateAndStoic();
     loadWorkout(); // new day = fresh workout
     renderAll();
+    updateAppBadge();
     showToast('New day. Fresh start.');
+    setTimeout(showWelcomeCard, 400);
   }
 }
 
@@ -838,16 +1226,27 @@ function renderAll() {
 
 function init() {
   state.history = lsGet(LS.history, {});
+  soundOn = lsGet(LS.sound, true);
   setDateAndStoic();
   renderAll();
   loadWorkout();
+  updateAppBadge();
+
+  const soundBtn = document.getElementById('soundToggle');
+  if (soundBtn) soundBtn.textContent = soundOn ? '🔊' : '🔇';
 
   // Show instantly from local cache — network happens in the background
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
+  setTimeout(showWelcomeCard, 350);
+
   if (!db) setSyncStatus(navigator.onLine ? 'error' : 'offline');
-  syncFromServer();
+  syncFromServer().then(() => {
+    evaluateAchievements(false);
+    renderJourney();
+    updateAppBadge();
+  });
 
   setInterval(checkRollover, 60 * 1000);
   document.addEventListener('visibilitychange', () => {
