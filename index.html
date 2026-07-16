@@ -328,6 +328,14 @@ body {
 
 .progress-pct { color: var(--orange) !important; }
 
+.target-level {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--orange-dim);
+  text-transform: none;
+}
+
 .progress-track {
   height: 3px;
   background: var(--border2);
@@ -530,6 +538,41 @@ body {
   margin-bottom: 12px;
 }
 
+.reward-balance {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--orange);
+}
+
+.rb-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  flex: 1;
+}
+
+.rb-amount {
+  font-family: 'Playfair Display', serif;
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--orange);
+  text-shadow: 0 0 20px rgba(232,120,10,0.3);
+}
+
+.rb-unit {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--orange-dim);
+  text-transform: uppercase;
+}
+
 .reward-item {
   display: flex;
   align-items: center;
@@ -545,24 +588,58 @@ body {
 
 .reward-item.unlocked { border-color: var(--orange-dim); background: var(--orange-glow); border-left: 3px solid var(--orange); }
 
-.reward-item.unlocked::before {
-  content: 'UNLOCKED';
-  position: absolute;
-  top: 0; right: 0;
-  font-family: 'DM Mono', monospace;
-  font-size: 8px;
-  letter-spacing: 0.15em;
-  color: var(--orange);
-  background: rgba(232,120,10,0.15);
-  padding: 3px 8px;
-}
-
 .reward-left { flex: 1; }
 .reward-name { font-size: 13px; color: var(--cream); margin-bottom: 3px; }
 .reward-desc { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-dim); }
 
-.reward-cost { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 700; color: var(--text-dim); padding-left: 14px; }
+.reward-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding-left: 14px; flex-shrink: 0; }
+
+.reward-cost { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 700; color: var(--text-dim); line-height: 1; }
 .reward-item.unlocked .reward-cost { color: var(--orange); text-shadow: 0 0 12px rgba(232,120,10,0.3); }
+
+.reward-redeem-btn {
+  background: var(--orange);
+  color: var(--bg);
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: none;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.reward-redeem-btn:active { opacity: 0.8; }
+
+.reward-need {
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.redeem-hist-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 16px 0 8px;
+}
+
+.redeem-hist-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 2px;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.redeem-hist-item span:first-child { color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 12px; }
 
 /* BOTTOM NOTE */
 .bottom-note { margin: 20px 24px 0; padding: 18px 20px; border-left: 3px solid var(--orange); background: var(--surface); }
@@ -1387,7 +1464,7 @@ body {
     <div class="progress-section">
       <div class="progress-row">
         <div class="progress-label">
-          <span>Today's Target</span>
+          <span>Today's Target <span class="target-level" id="targetLevelTag"></span></span>
           <span class="progress-pct" id="dailyPts">0 / 60 pts</span>
         </div>
         <div class="progress-track">
@@ -1439,7 +1516,13 @@ body {
 
     <div class="rewards-section">
       <div class="rewards-title">Rewards — Spend Your Points</div>
+      <div class="reward-balance">
+        <span class="rb-label">Your Balance</span>
+        <span class="rb-amount" id="rewardBalance">0</span>
+        <span class="rb-unit">pts</span>
+      </div>
       <div id="rewardsList"></div>
+      <div id="redemptionHistory"></div>
     </div>
 
     <div class="bottom-note">
