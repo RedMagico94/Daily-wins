@@ -152,6 +152,12 @@ function addDays(d, n) {
   return c;
 }
 function getTodayStr() { return fmtDate(new Date()); }
+function shortDateLabel(dateStr) {
+  const d = parseDate(dateStr);
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+}
 function getWeekStr(dateStr) {
   const d = parseDate(dateStr || getTodayStr());
   const day = d.getDay();
@@ -183,7 +189,13 @@ let state = {
   history: {},              // 'YYYY-MM-DD' -> [win_id, ...] (completed, incl. energy_* and bonus_*)
   todayStr: getTodayStr(),
   weekStr: getWeekStr(),
+  viewDate: getTodayStr(),  // which day the Categories checklist is showing — today by default
 };
+
+// How far back you can backfill a missed day. Wide enough to catch up
+// after a bad week, narrow enough that this stays "catch up recently",
+// not "rewrite history".
+const BACKFILL_DAYS = 14;
 
 let openCat = 'body';       // which category accordion is open
 let currentTab = 'wins';
@@ -550,7 +562,12 @@ function buildWelcomeRecap() {
     computeStreak('workout'), computeStreak('noporn'), computeStreak('read'), computeStreak('steps')
   );
 
-  return { greeting: timeGreeting(), compareLine, bestStreak };
+  // Only nudge if yesterday's a real gap in an established history, not
+  // just "the app is new" or "yesterday was a genuine, logged zero day".
+  const hasOlderHistory = Object.keys(state.history).some(d => d < yestStr);
+  const showBackfillNudge = yestPts === 0 && hasOlderHistory;
+
+  return { greeting: timeGreeting(), compareLine, bestStreak, showBackfillNudge };
 }
 
 function showWelcomeCard() {
@@ -563,10 +580,26 @@ function showWelcomeCard() {
     ? `${streakFlare(r.bestStreak)} ${r.bestStreak}-day streak — protect it.`
     : (r.bestStreak > 0 ? `${r.bestStreak}-day streak — building.` : 'Start your streak today.');
   document.getElementById('wcLine').textContent = r.compareLine;
+  const nudge = document.getElementById('wcNudge');
+  if (nudge) nudge.style.display = r.showBackfillNudge ? 'block' : 'none';
   card.classList.add('show');
 }
 function dismissWelcome() {
   document.getElementById('welcomeCard').classList.remove('show');
+}
+
+// Jumps straight into backfill mode for yesterday — the direct action
+// behind the welcome card's "forgot something?" nudge.
+function backfillYesterday() {
+  dismissWelcome();
+  switchTab('wins');
+  state.viewDate = fmtDate(addDays(parseDate(state.todayStr), -1));
+  renderCategories();
+  renderDaySwitcher();
+  setTimeout(() => {
+    const el = document.getElementById('daySwitcher');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 300);
 }
 
 // ============================================
@@ -799,15 +832,60 @@ function setEnergy(level) {
   pushOp({ t: 'energy', date: today, level });
 }
 
+// ============================================
+// DAY SWITCHER — backfill a missed day. Only the
+// Categories checklist below it is date-scoped;
+// everything else always stays anchored to today.
+// ============================================
+function shiftViewDate(delta) {
+  const nd = fmtDate(addDays(parseDate(state.viewDate), delta));
+  if (nd > state.todayStr) return;
+  const oldest = fmtDate(addDays(parseDate(state.todayStr), -BACKFILL_DAYS));
+  if (nd < oldest) return;
+  state.viewDate = nd;
+  renderCategories();
+  renderDaySwitcher();
+}
+
+function jumpToToday() {
+  if (state.viewDate === state.todayStr) return;
+  state.viewDate = state.todayStr;
+  renderCategories();
+  renderDaySwitcher();
+}
+
+function renderDaySwitcher() {
+  const vd = state.viewDate;
+  const isToday = vd === state.todayStr;
+  const isYesterday = vd === fmtDate(addDays(parseDate(state.todayStr), -1));
+  const oldest = fmtDate(addDays(parseDate(state.todayStr), -BACKFILL_DAYS));
+
+  const labelEl = document.getElementById('viewDateLabel');
+  const ptsEl = document.getElementById('viewDatePts');
+  const prevBtn = document.getElementById('viewDatePrev');
+  const nextBtn = document.getElementById('viewDateNext');
+  const backBtn = document.getElementById('viewDateBackBtn');
+  const switcherEl = document.getElementById('daySwitcher');
+  if (!labelEl) return;
+
+  labelEl.textContent = isToday ? 'Today' : (isYesterday ? 'Yesterday' : shortDateLabel(vd));
+  ptsEl.textContent = `${dayPoints(vd)}pts logged`;
+  prevBtn.disabled = vd <= oldest;
+  nextBtn.disabled = isToday;
+  backBtn.style.display = isToday ? 'none' : 'block';
+  switcherEl.classList.toggle('past', !isToday);
+}
+
 function renderCategories() {
   const container = document.getElementById('categories');
   container.innerHTML = '';
+  const vd = state.viewDate;
 
   CATEGORIES.forEach(cat => {
     const catPtsToday = cat.wins
-      .filter(w => hasWin(state.todayStr, w.id))
+      .filter(w => hasWin(vd, w.id))
       .reduce((sum, w) => sum + w.pts, 0);
-    const bonusEarned = hasWin(state.todayStr, 'bonus_' + cat.id);
+    const bonusEarned = hasWin(vd, 'bonus_' + cat.id);
 
     const div = document.createElement('div');
     div.className = 'category';
@@ -827,7 +905,7 @@ function renderCategories() {
       </div>
       <div class="category-body ${isOpen ? 'open' : ''}" id="body-${cat.id}">
         ${cat.wins.map(win => `
-          <div class="win-item ${hasWin(state.todayStr, win.id) ? 'completed' : ''}"
+          <div class="win-item ${hasWin(vd, win.id) ? 'completed' : ''}"
                id="win-${win.id}"
                onclick="toggleWin('${win.id}', event)">
             <div class="win-left">
@@ -898,84 +976,94 @@ function toggleCat(id) {
 }
 
 // Core state mutation shared by user taps and auto-logged wins.
-function _setWin(winId, done) {
-  const today = state.todayStr;
-  if (done) addWinLocal(today, winId);
-  else removeWinLocal(today, winId);
+// dateStr defaults to real today; the categories checklist passes
+// state.viewDate explicitly so backfilling a past day works the same way.
+function _setWin(winId, done, dateStr) {
+  const d = dateStr || state.todayStr;
+  if (done) addWinLocal(d, winId);
+  else removeWinLocal(d, winId);
   saveLocal();
-  pushOp({ t: 'win', date: today, id: winId, done });
+  pushOp({ t: 'win', date: d, id: winId, done });
 }
 
-function _afterWinChange(catId) {
+function _afterWinChange(catId, dateStr) {
   renderCategories();
+  renderDaySwitcher();
   updateHeader();
   renderRewards();
   renderJourney();
-  syncCategoryBonus(catId);
+  syncCategoryBonus(catId, dateStr);
   evaluateAchievements(true);
   updateAppBadge();
 }
 
+// Always acts on whatever day the checklist is currently showing
+// (state.viewDate) — today by default, or a backfilled past day.
 function toggleWin(winId, evt) {
   const win = WIN_INDEX[winId];
   if (!win) return;
-  const was = hasWin(state.todayStr, winId);
-  const prevPts = getTodayPoints();
+  const dateStr = state.viewDate;
+  const isToday = dateStr === state.todayStr;
+  const was = hasWin(dateStr, winId);
+  const prevPts = dayPoints(dateStr);
   const done = !was;
 
   if (done) popId = winId;
-  _setWin(winId, done);
+  _setWin(winId, done, dateStr);
 
   if (done) {
     sndTick();
     if (evt) burstConfettiAt(evt.clientX, evt.clientY, 14);
     const now = prevPts + win.pts;
-    const target = todaysTarget();
+    const target = targetForDate(dateStr);
     if (prevPts < target && now >= target) {
       sndTarget();
-      showToast(`🎯 ${target}pts — daily target hit. Strong day.`);
+      const label = isToday ? 'Daily' : shortDateLabel(dateStr) + "'s";
+      showToast(`🎯 ${target}pts — ${label} target hit. Strong day.`);
       burstConfettiAt(window.innerWidth / 2, 160, 40, true);
     } else {
-      showToast(`+${win.pts}pts — well done.`);
+      showToast(`+${win.pts}pts${isToday ? '' : ' — ' + shortDateLabel(dateStr)} — well done.`);
     }
   } else {
     sndUntick();
-    showToast(`-${win.pts}pts removed`);
+    showToast(`-${win.pts}pts removed${isToday ? '' : ' — ' + shortDateLabel(dateStr)}`);
   }
 
-  _afterWinChange(win.catId);
+  _afterWinChange(win.catId, dateStr);
 }
 
-// Programmatic win logging (workout complete, reflection saved) —
-// same effects minus the tap-position confetti.
+// Programmatic win logging (workout complete, reflection saved) — always
+// applies to real today, regardless of what day the checklist is showing.
 function autoLogWin(winId) {
   if (hasWin(state.todayStr, winId)) return false;
   const win = WIN_INDEX[winId];
   if (!win) return false;
-  popId = winId;
-  _setWin(winId, true);
+  popId = (state.viewDate === state.todayStr) ? winId : null;
+  _setWin(winId, true, state.todayStr);
   sndTick();
-  _afterWinChange(win.catId);
+  _afterWinChange(win.catId, state.todayStr);
   return true;
 }
 
-function syncCategoryBonus(catId) {
+function syncCategoryBonus(catId, dateStr) {
+  const d = dateStr || state.todayStr;
   const cat = CATEGORIES.find(c => c.id === catId);
   if (!cat) return;
   const bonusId = 'bonus_' + catId;
-  const allDone = cat.wins.every(w => hasWin(state.todayStr, w.id));
-  const hasBonus = hasWin(state.todayStr, bonusId);
+  const allDone = cat.wins.every(w => hasWin(d, w.id));
+  const hasBonus = hasWin(d, bonusId);
 
   if (allDone && !hasBonus) {
-    _setWin(bonusId, true);
+    _setWin(bonusId, true, d);
     sndBonus();
-    showToast(`⭐ ${cat.name} cleared — +${CATEGORY_BONUS_PTS} bonus`);
+    const suffix = d === state.todayStr ? '' : ` (${shortDateLabel(d)})`;
+    showToast(`⭐ ${cat.name} cleared${suffix} — +${CATEGORY_BONUS_PTS} bonus`);
     burstConfettiAt(window.innerWidth / 2, 220, 26, true);
     renderCategories();
     updateHeader();
     renderRewards();
   } else if (!allDone && hasBonus) {
-    _setWin(bonusId, false);
+    _setWin(bonusId, false, d);
     renderCategories();
     updateHeader();
     renderRewards();
@@ -1281,6 +1369,13 @@ function releaseWakeLock() {
 }
 
 function switchTab(tab) {
+  // Never leave the checklist silently stuck on a backfilled day —
+  // stepping away from Wins always snaps it back to today.
+  if (tab !== 'wins' && state.viewDate !== state.todayStr) {
+    state.viewDate = state.todayStr;
+    renderCategories();
+    renderDaySwitcher();
+  }
   currentTab = tab;
   document.querySelectorAll('.tab-view').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
@@ -1301,6 +1396,7 @@ function checkRollover() {
   if (t !== state.todayStr) {
     state.todayStr = t;
     state.weekStr = getWeekStr();
+    state.viewDate = t;
     setDateAndStoic();
     loadWorkout(); // new day = fresh workout
     renderAll();
@@ -1317,6 +1413,7 @@ function renderAll() {
   updateHeader();
   renderEnergyCheckin();
   renderCategories();
+  renderDaySwitcher();
   renderRewards();
   renderJourney();
 }
