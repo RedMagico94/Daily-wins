@@ -175,6 +175,8 @@ const LS = {
   workout: 'dw_workout_v1',
   sound: 'dw_sound_v1',
   achieve: 'dw_achievements_v1',
+  weekreview: 'dw_weekreview_v1',
+  reminder: 'dw_reminder_v1',
 };
 
 function lsGet(k, fallback) {
@@ -196,6 +198,10 @@ let state = {
 // after a bad week, narrow enough that this stays "catch up recently",
 // not "rewrite history".
 const BACKFILL_DAYS = 14;
+
+// Grace days per streak, per calendar month. Two is enough to absorb
+// illness or travel without making the streak number meaningless.
+const GRACE_PER_MONTH = 2;
 
 let openCat = 'body';       // which category accordion is open
 let currentTab = 'wins';
@@ -242,15 +248,55 @@ function targetForDate(dateStr) {
 }
 function todaysTarget() { return targetForDate(state.todayStr); }
 // Real streak: consecutive days ending today (or yesterday if today isn't done yet).
-function computeStreak(winId) {
+// Walking back from today, a missed day can be bridged by a "grace day"
+// so one bad day doesn't wipe a long run. Each streak gets GRACE_PER_MONTH
+// credits per calendar month, charged to the month of the day being
+// forgiven. Grace days bridge the gap but never add to the count — you
+// only get credit for days you actually did the thing.
+function computeStreakInfo(winId) {
+  const graceUsed = {};   // 'YYYY-MM' -> credits consumed
+  const bridged = [];     // dates covered by grace
   let n = hasWin(state.todayStr, winId) ? 1 : 0;
   let d = addDays(parseDate(state.todayStr), -1);
-  while (hasWin(fmtDate(d), winId)) {
-    n++;
-    d = addDays(d, -1);
-    if (n > 3650) break;
+
+  for (let guard = 0; guard < 3650; guard++) {
+    const ds = fmtDate(d);
+    if (hasWin(ds, winId)) { n++; d = addDays(d, -1); continue; }
+
+    // Missed day — try to bridge this gap, spending one credit per
+    // forgiven day out of that day's monthly budget.
+    const pending = [];
+    let probe = new Date(d);
+    let reconnected = false;
+    for (let k = 0; k < GRACE_PER_MONTH; k++) {
+      const ps = fmtDate(probe);
+      const pm = ps.slice(0, 7);
+      const spent = (graceUsed[pm] || 0) + pending.filter(x => x.slice(0, 7) === pm).length;
+      if (spent >= GRACE_PER_MONTH) break;   // that month is out of credits
+      pending.push(ps);
+      probe = addDays(probe, -1);
+      if (hasWin(fmtDate(probe), winId)) { reconnected = true; break; }
+    }
+    if (!reconnected) break;                 // gap too wide, or no credits left
+
+    pending.forEach(p => {
+      const m = p.slice(0, 7);
+      graceUsed[m] = (graceUsed[m] || 0) + 1;
+      bridged.push(p);
+    });
+    d = probe;
   }
-  return n;
+
+  return { streak: n, bridged, graceUsed };
+}
+
+function computeStreak(winId) { return computeStreakInfo(winId).streak; }
+
+// Credits this streak has left in the current calendar month.
+function graceLeft(winId) {
+  const month = state.todayStr.slice(0, 7);
+  const info = computeStreakInfo(winId);
+  return Math.max(GRACE_PER_MONTH - (info.graceUsed[month] || 0), 0);
 }
 // Longest-ever consecutive run for a win, anywhere in the retained history window.
 function bestStreakEver(winId) {
@@ -586,20 +632,96 @@ function showWelcomeCard() {
 }
 function dismissWelcome() {
   document.getElementById('welcomeCard').classList.remove('show');
+  // Close out last week before anything else, while it's still fixable.
+  if (weekReviewPending()) setTimeout(showWeekReview, 350);
 }
 
 // Jumps straight into backfill mode for yesterday — the direct action
 // behind the welcome card's "forgot something?" nudge.
 function backfillYesterday() {
   dismissWelcome();
+  jumpToBackfill(fmtDate(addDays(parseDate(state.todayStr), -1)));
+}
+
+// Shared by every "go fix that day" entry point.
+function jumpToBackfill(dateStr) {
   switchTab('wins');
-  state.viewDate = fmtDate(addDays(parseDate(state.todayStr), -1));
+  state.viewDate = dateStr;
   renderCategories();
   renderDaySwitcher();
   setTimeout(() => {
     const el = document.getElementById('daySwitcher');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, 300);
+}
+
+// ============================================
+// WEEKLY REVIEW — backfill only reaches the current week's totals in
+// the moment; once Monday rolls over, last week is done. This is the
+// one prompt that catches anything still missing before that happens.
+// ============================================
+function lastWeekStr() {
+  return getWeekStr(fmtDate(addDays(parseDate(state.weekStr), -1)));
+}
+
+function weekReviewPending() {
+  const lw = lastWeekStr();
+  if (lsGet(LS.weekreview, null) === lw) return false;
+  // Nothing to review if the app has no history from before this week.
+  return Object.keys(state.history).some(d => d < state.weekStr);
+}
+
+function buildWeekSummary(weekStart) {
+  const start = parseDate(weekStart);
+  let pts = 0, daysHit = 0, best = 0, workouts = 0, logged = 0;
+  for (let i = 0; i < 7; i++) {
+    const ds = fmtDate(addDays(start, i));
+    const p = dayPoints(ds);
+    pts += p;
+    if (p > best) best = p;
+    if (p > 0) logged++;
+    if (p >= targetForDate(ds)) daysHit++;
+    if (hasWin(ds, 'workout')) workouts++;
+  }
+  return { pts, daysHit, best, workouts, logged };
+}
+
+function showWeekReview() {
+  const card = document.getElementById('weekReview');
+  if (!card) return;
+  const lw = lastWeekStr();
+  const s = buildWeekSummary(lw);
+  const end = fmtDate(addDays(parseDate(lw), 6));
+
+  document.getElementById('wrRange').textContent =
+    `${shortDateLabel(lw)} — ${shortDateLabel(end)}`;
+  document.getElementById('wrPoints').textContent = s.pts;
+  document.getElementById('wrHit').textContent = s.daysHit;
+  document.getElementById('wrWorkouts').textContent = s.workouts;
+  document.getElementById('wrBest').textContent = s.best;
+
+  let verdict;
+  if (s.logged === 0) verdict = "Nothing logged last week. If you did the work, add it before it closes.";
+  else if (s.daysHit >= 6) verdict = 'Six-plus days on target. That was a genuinely strong week.';
+  else if (s.daysHit >= 4) verdict = 'Solid week — most days on target.';
+  else if (s.daysHit >= 2) verdict = 'A partial week. Anything missing that you forgot to log?';
+  else verdict = 'Quiet week. Add anything you did but never logged.';
+  document.getElementById('wrVerdict').textContent = verdict;
+
+  card.classList.add('show');
+}
+
+function dismissWeekReview() {
+  lsSet(LS.weekreview, lastWeekStr());
+  document.getElementById('weekReview').classList.remove('show');
+}
+
+// "Add what's missing" — drops you on the last day of last week, from
+// where the day switcher can reach every other day in it.
+function weekReviewBackfill() {
+  lsSet(LS.weekreview, lastWeekStr());
+  document.getElementById('weekReview').classList.remove('show');
+  jumpToBackfill(fmtDate(addDays(parseDate(lastWeekStr()), 6)));
 }
 
 // ============================================
@@ -779,16 +901,27 @@ function updateHeader() {
     ? 'Max level — hold the line'
     : `${level * 100 - weekPts}pts → Level ${level + 1}`;
 
-  setStreak('streakWorkout', computeStreak('workout'));
-  setStreak('streakClean', computeStreak('noporn'));
-  setStreak('streakRead', computeStreak('read'));
-  setStreak('streakSteps', computeStreak('steps'));
+  setStreak('streakWorkout', 'workout');
+  setStreak('streakClean', 'noporn');
+  setStreak('streakRead', 'read');
+  setStreak('streakSteps', 'steps');
 }
 
-function setStreak(id, n) {
-  animateNumber(document.getElementById(id), n);
+function setStreak(id, winId) {
+  const info = computeStreakInfo(winId);
+  animateNumber(document.getElementById(id), info.streak);
   const flareEl = document.getElementById(id + 'Flare');
-  if (flareEl) flareEl.textContent = streakFlare(n);
+  if (flareEl) flareEl.textContent = streakFlare(info.streak);
+
+  // Shields left this month, so you can see the safety net before you need it.
+  const graceEl = document.getElementById(id + 'Grace');
+  if (graceEl) {
+    const month = state.todayStr.slice(0, 7);
+    const used = info.graceUsed[month] || 0;
+    const left = Math.max(GRACE_PER_MONTH - used, 0);
+    graceEl.textContent = '🛡️'.repeat(left) + '·'.repeat(used);
+    graceEl.title = `${left} grace day${left === 1 ? '' : 's'} left this month`;
+  }
 }
 
 const ENERGY_HINTS = {
@@ -1407,6 +1540,152 @@ function checkRollover() {
 }
 
 // ============================================
+// EVENING REMINDER — Web Push.
+//
+// iOS delivers push to PWAs only when they're installed to the home
+// screen (16.4+), and permission must come from a real tap. The
+// subscription is stored in Supabase; a scheduled Edge Function sends
+// the nightly nudge. See README "Evening reminders" for the one-time
+// server setup — until it's deployed, this stays switched off and the
+// app icon badge remains the passive nudge.
+// ============================================
+const VAPID_PUBLIC_KEY = ''; // set to your VAPID public key after setup
+const REMINDER_HOUR = 20;    // 8pm local, sent by the scheduled function
+
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+function pushConfigured() { return !!VAPID_PUBLIC_KEY; }
+// iOS only grants push to a PWA launched from the home screen.
+function isStandalone() {
+  return window.navigator.standalone === true ||
+    window.matchMedia('(display-mode: standalone)').matches;
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+function renderReminderRow() {
+  const btn = document.getElementById('reminderToggle');
+  const note = document.getElementById('reminderNote');
+  if (!btn || !note) return;
+
+  if (!pushSupported() || !pushConfigured()) {
+    btn.textContent = 'Unavailable';
+    btn.disabled = true;
+    note.textContent = pushSupported()
+      ? 'Reminders need the server step in the README.'
+      : 'This browser can\'t do push notifications.';
+    return;
+  }
+  if (!isStandalone() && Notification.permission !== 'granted') {
+    btn.textContent = 'Add to Home Screen';
+    btn.disabled = true;
+    note.textContent = 'Install the app to your home screen to enable reminders.';
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    btn.textContent = 'Blocked';
+    btn.disabled = true;
+    note.textContent = 'Notifications are blocked in iOS Settings for this app.';
+    return;
+  }
+
+  const on = lsGet(LS.reminder, false);
+  btn.disabled = false;
+  btn.textContent = on ? 'On' : 'Off';
+  btn.classList.toggle('on', on);
+  note.textContent = on
+    ? `Nightly nudge at ${REMINDER_HOUR}:00 if the day isn't logged.`
+    : 'Get a nightly nudge to log your wins.';
+}
+
+async function toggleReminders() {
+  if (!pushSupported() || !pushConfigured()) return;
+
+  if (lsGet(LS.reminder, false)) {
+    await disableReminders();
+  } else {
+    await enableReminders();
+  }
+  renderReminderRow();
+}
+
+async function enableReminders() {
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { showToast('Notifications not allowed.'); return; }
+
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    if (db) {
+      const json = sub.toJSON();
+      const { error } = await db.from('push_subscriptions').upsert({
+        endpoint: sub.endpoint,
+        p256dh: json.keys.p256dh,
+        auth: json.keys.auth,
+        reminder_hour: REMINDER_HOUR,
+        tz_offset_minutes: new Date().getTimezoneOffset(),
+        enabled: true,
+      }, { onConflict: 'endpoint' });
+      if (error) throw error;
+    }
+    lsSet(LS.reminder, true);
+    showToast('🔔 Evening reminders on.');
+  } catch (e) {
+    console.error('Enable reminders failed:', e);
+    showToast('Could not turn on reminders.');
+  }
+}
+
+async function disableReminders() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      if (db) await db.from('push_subscriptions').update({ enabled: false }).eq('endpoint', sub.endpoint);
+      await sub.unsubscribe();
+    }
+  } catch (e) {
+    console.error('Disable reminders failed:', e);
+  }
+  lsSet(LS.reminder, false);
+  showToast('Evening reminders off.');
+}
+
+// Keep the stored timezone fresh so the nightly send stays at 8pm local
+// even after travel; also self-heals if iOS rotated the subscription.
+async function refreshPushSubscription() {
+  if (!pushSupported() || !pushConfigured() || !db) return;
+  if (!lsGet(LS.reminder, false)) return;
+  if (Notification.permission !== 'granted') return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) { lsSet(LS.reminder, false); renderReminderRow(); return; }
+    const json = sub.toJSON();
+    await db.from('push_subscriptions').upsert({
+      endpoint: sub.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+      reminder_hour: REMINDER_HOUR,
+      tz_offset_minutes: new Date().getTimezoneOffset(),
+      enabled: true,
+    }, { onConflict: 'endpoint' });
+  } catch (e) { console.error('Refresh subscription failed:', e); }
+}
+
+// ============================================
 // INIT
 // ============================================
 function renderAll() {
@@ -1428,6 +1707,7 @@ function init() {
 
   const soundBtn = document.getElementById('soundToggle');
   if (soundBtn) soundBtn.textContent = soundOn ? '🔊' : '🔇';
+  renderReminderRow();
 
   // Show instantly from local cache — network happens in the background
   document.getElementById('loading').style.display = 'none';
@@ -1440,6 +1720,7 @@ function init() {
     evaluateAchievements(false);
     renderJourney();
     updateAppBadge();
+    refreshPushSubscription();
   });
 
   setInterval(checkRollover, 60 * 1000);

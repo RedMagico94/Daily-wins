@@ -1507,6 +1507,160 @@ body {
   text-transform: uppercase;
   opacity: 0.6;
 }
+
+/* ============================================
+   GRACE DAYS
+   ============================================ */
+.streak-grace { font-size: 8px; height: 12px; letter-spacing: 0.1em; opacity: 0.75; }
+
+.streak-foot {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+/* ============================================
+   EVENING REMINDER ROW
+   ============================================ */
+.reminder-row {
+  margin: 16px 24px 0;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.reminder-left { flex: 1; min-width: 0; }
+.reminder-title { font-size: 13px; color: var(--cream); margin-bottom: 4px; }
+.reminder-note { font-family: 'DM Mono', monospace; font-size: 9px; color: var(--text-dim); line-height: 1.5; }
+
+.reminder-toggle {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border2);
+  color: var(--text-dim);
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.reminder-toggle.on { border-color: var(--orange); color: var(--orange); background: var(--orange-glow); }
+.reminder-toggle:disabled { opacity: 0.4; cursor: default; }
+
+/* ============================================
+   WEEKLY REVIEW
+   ============================================ */
+.week-review {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse 90% 70% at 50% 15%, rgba(232,120,10,0.1) 0%, transparent 60%), #080808;
+  z-index: 750;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  overflow-y: auto;
+}
+
+.week-review.show { display: flex; }
+
+.wr-inner { width: 100%; max-width: 320px; animation: fadeUp 0.5s ease both; }
+
+.wr-eyebrow {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  color: var(--orange);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.wr-range {
+  font-family: 'Playfair Display', serif;
+  font-size: 26px;
+  font-weight: 900;
+  color: var(--cream);
+  line-height: 1.2;
+  margin-bottom: 24px;
+}
+
+.wr-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 20px; }
+
+.wr-stat {
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--orange-dim);
+  text-align: center;
+}
+
+.wr-num {
+  font-family: 'Playfair Display', serif;
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--orange);
+  line-height: 1;
+  margin-bottom: 5px;
+}
+
+.wr-lbl {
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.wr-verdict {
+  font-family: 'Playfair Display', serif;
+  font-size: 15px;
+  font-style: italic;
+  color: var(--cream-dim);
+  line-height: 1.6;
+  padding-left: 14px;
+  border-left: 3px solid var(--orange);
+  margin-bottom: 28px;
+}
+
+.wr-actions { display: flex; flex-direction: column; gap: 10px; }
+
+.wr-btn-primary {
+  background: var(--orange);
+  color: var(--bg);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: none;
+  padding: 15px;
+  cursor: pointer;
+}
+.wr-btn-primary:active { opacity: 0.85; }
+
+.wr-btn-secondary {
+  background: none;
+  border: 1px solid var(--border2);
+  color: var(--text-dim);
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 13px;
+  cursor: pointer;
+}
+.wr-btn-secondary:active { border-color: var(--orange-dim); color: var(--orange); }
 </style>
 </head>
 <body>
@@ -1586,24 +1740,29 @@ body {
         <div class="streak-item">
           <div class="streak-num" id="streakWorkout">0</div>
           <div class="streak-flare" id="streakWorkoutFlare"></div>
+          <div class="streak-grace" id="streakWorkoutGrace"></div>
           <div class="streak-label">Workout Days</div>
         </div>
         <div class="streak-item">
           <div class="streak-num" id="streakClean">0</div>
           <div class="streak-flare" id="streakCleanFlare"></div>
+          <div class="streak-grace" id="streakCleanGrace"></div>
           <div class="streak-label">Clean Days</div>
         </div>
         <div class="streak-item">
           <div class="streak-num" id="streakRead">0</div>
           <div class="streak-flare" id="streakReadFlare"></div>
+          <div class="streak-grace" id="streakReadGrace"></div>
           <div class="streak-label">Read / Learn</div>
         </div>
         <div class="streak-item">
           <div class="streak-num" id="streakSteps">0</div>
           <div class="streak-flare" id="streakStepsFlare"></div>
+          <div class="streak-grace" id="streakStepsGrace"></div>
           <div class="streak-label">7k+ Steps</div>
         </div>
       </div>
+      <div class="streak-foot">🛡️ Each streak gets 2 grace days a month — one missed day won't break you.</div>
     </div>
 
     <div class="rewards-section">
@@ -1619,6 +1778,14 @@ body {
 
     <div class="bottom-note">
       <p>"The impediment to action advances action. What stands in the way becomes the way." Every win you tick today is proof of who you are becoming.</p>
+    </div>
+
+    <div class="reminder-row">
+      <div class="reminder-left">
+        <div class="reminder-title">🔔 Evening Reminder</div>
+        <div class="reminder-note" id="reminderNote">Get a nightly nudge to log your wins.</div>
+      </div>
+      <button class="reminder-toggle" id="reminderToggle" onclick="toggleReminders()">Off</button>
     </div>
 
     <div class="sync-row">
@@ -1884,6 +2051,25 @@ body {
     <div class="wc-line" id="wcLine"></div>
     <button class="wc-nudge" id="wcNudge" style="display:none" onclick="backfillYesterday()">Forgot to log yesterday? Tap to catch up →</button>
     <button class="wc-btn" onclick="dismissWelcome()">Let's go →</button>
+  </div>
+</div>
+
+<!-- WEEKLY REVIEW -->
+<div class="week-review" id="weekReview">
+  <div class="wr-inner">
+    <div class="wr-eyebrow">Last Week — Closing Out</div>
+    <div class="wr-range" id="wrRange"></div>
+    <div class="wr-grid">
+      <div class="wr-stat"><div class="wr-num" id="wrPoints">0</div><div class="wr-lbl">Points</div></div>
+      <div class="wr-stat"><div class="wr-num" id="wrHit">0</div><div class="wr-lbl">Days on target</div></div>
+      <div class="wr-stat"><div class="wr-num" id="wrWorkouts">0</div><div class="wr-lbl">Workouts</div></div>
+      <div class="wr-stat"><div class="wr-num" id="wrBest">0</div><div class="wr-lbl">Best day</div></div>
+    </div>
+    <div class="wr-verdict" id="wrVerdict"></div>
+    <div class="wr-actions">
+      <button class="wr-btn-primary" onclick="weekReviewBackfill()">Add What's Missing</button>
+      <button class="wr-btn-secondary" onclick="dismissWeekReview()">Looks Right — Close It Out</button>
+    </div>
   </div>
 </div>
 
