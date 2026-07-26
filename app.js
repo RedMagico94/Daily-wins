@@ -44,7 +44,7 @@ const CATEGORIES = [
       { id: 'protein', name: 'Protein at 2+ meals', desc: 'Eggs, chicken, yoghurt, legumes', pts: 6 },
       { id: 'water', name: 'Drink 2L+ water', desc: 'Hydration is underrated', pts: 4 },
       { id: 'sleep', name: 'In bed before midnight', desc: 'Protect your sleep this week', pts: 5 },
-      { id: 'weighin', name: 'Weigh in (Mon or Fri)', desc: 'Record it. No judgment.', pts: 10 },
+      { id: 'weighin', name: 'Weigh in (Mon or Fri)', desc: 'Tap to record the number. No judgment.', pts: 10 },
     ]
   },
   {
@@ -177,6 +177,7 @@ const LS = {
   achieve: 'dw_achievements_v1',
   weekreview: 'dw_weekreview_v1',
   reminder: 'dw_reminder_v1',
+  weightUnit: 'dw_weightunit_v1',
 };
 
 function lsGet(k, fallback) {
@@ -342,6 +343,58 @@ function lifetimeSpent() {
   return s;
 }
 function rewardBank() { return Math.max(lifetimeEarned() - lifetimeSpent(), 0); }
+
+// ============================================
+// WEIGH-INS
+// Stored as a pseudo-win ('weight_82.5'), the same pattern as energy
+// and bonuses — so it rides the existing offline queue and syncs to
+// Supabase with no schema change. Always canonical kg on disk; the
+// kg/lb toggle is display only, so switching units never rewrites data.
+// ============================================
+const LB_PER_KG = 2.20462;
+
+function weightOn(dateStr) {
+  const id = winsOn(dateStr).find(x => x.startsWith('weight_'));
+  if (!id) return null;
+  const v = parseFloat(id.slice('weight_'.length));
+  return Number.isFinite(v) ? v : null;
+}
+
+// Every recorded weigh-in, oldest first.
+function allWeights() {
+  return Object.keys(state.history)
+    .map(d => ({ date: d, kg: weightOn(d) }))
+    .filter(x => x.kg !== null)
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+function latestWeight() {
+  const all = allWeights();
+  return all.length ? all[all.length - 1] : null;
+}
+
+function weightUnit() { return lsGet(LS.weightUnit, 'kg'); }
+function toDisplayWeight(kg) {
+  return weightUnit() === 'lb' ? kg * LB_PER_KG : kg;
+}
+function fromDisplayWeight(v) {
+  return weightUnit() === 'lb' ? v / LB_PER_KG : v;
+}
+function fmtWeight(kg, decimals = 1) {
+  return toDisplayWeight(kg).toFixed(decimals) + ' ' + weightUnit();
+}
+
+function setWeightFor(dateStr, kg) {
+  // One weight per day — drop any previous entry first.
+  winsOn(dateStr).filter(x => x.startsWith('weight_'))
+    .forEach(old => _setWin(old, false, dateStr));
+  _setWin('weight_' + kg.toFixed(1), true, dateStr);
+}
+
+function clearWeightFor(dateStr) {
+  winsOn(dateStr).filter(x => x.startsWith('weight_'))
+    .forEach(old => _setWin(old, false, dateStr));
+}
 
 function redeemReward(rewardId) {
   const r = REWARDS.find(x => x.id === rewardId);
@@ -1037,7 +1090,9 @@ function renderCategories() {
         </div>
       </div>
       <div class="category-body ${isOpen ? 'open' : ''}" id="body-${cat.id}">
-        ${cat.wins.map(win => `
+        ${cat.wins.map(win => {
+          const wKg = win.id === 'weighin' ? weightOn(vd) : null;
+          return `
           <div class="win-item ${hasWin(vd, win.id) ? 'completed' : ''}"
                id="win-${win.id}"
                onclick="toggleWin('${win.id}', event)">
@@ -1046,13 +1101,13 @@ function renderCategories() {
                 <div class="win-check-inner"></div>
               </div>
               <div class="win-text">
-                <div class="win-name">${win.name}</div>
+                <div class="win-name">${win.name}${wKg !== null ? ` <span class="win-value">${fmtWeight(wKg)}</span>` : ''}</div>
                 <div class="win-desc">${win.desc}</div>
               </div>
             </div>
             <div class="win-pts">${win.pts}</div>
-          </div>
-        `).join('')}
+          </div>`;
+        }).join('')}
         ${bonusEarned ? `<div class="cat-bonus">⭐ ${cat.name} cleared — +${CATEGORY_BONUS_PTS} bonus earned</div>` : ''}
       </div>
     `;
@@ -1135,6 +1190,8 @@ function _afterWinChange(catId, dateStr) {
 function toggleWin(winId, evt) {
   const win = WIN_INDEX[winId];
   if (!win) return;
+  // The weigh-in isn't a plain checkbox — it captures a number.
+  if (winId === 'weighin') { openWeightModal(); return; }
   const dateStr = state.viewDate;
   const isToday = dateStr === state.todayStr;
   const was = hasWin(dateStr, winId);
@@ -1163,6 +1220,96 @@ function toggleWin(winId, evt) {
   }
 
   _afterWinChange(win.catId, dateStr);
+}
+
+// ============================================
+// WEIGHT ENTRY MODAL
+// ============================================
+function openWeightModal() {
+  const dateStr = state.viewDate;
+  const existing = weightOn(dateStr);
+  const last = latestWeight();
+
+  document.getElementById('wgDate').textContent =
+    dateStr === state.todayStr ? 'Today' : shortDateLabel(dateStr);
+
+  const input = document.getElementById('wgInput');
+  // Prefill with the last known weight — it barely moves day to day, so
+  // this is usually a nudge of the decimal rather than a fresh entry.
+  const seed = existing !== null ? existing : (last ? last.kg : null);
+  input.value = seed !== null ? toDisplayWeight(seed).toFixed(1) : '';
+  document.getElementById('wgUnit').textContent = weightUnit();
+
+  const removeBtn = document.getElementById('wgRemove');
+  removeBtn.style.display = existing !== null ? 'block' : 'none';
+
+  // Show the delta against the previous weigh-in, not against nothing.
+  const prev = allWeights().filter(w => w.date < dateStr).pop();
+  const hint = document.getElementById('wgHint');
+  hint.textContent = prev
+    ? `Last: ${fmtWeight(prev.kg)} on ${shortDateLabel(prev.date)}`
+    : 'First weigh-in — this becomes your baseline.';
+
+  document.getElementById('weightModal').classList.add('show');
+  setTimeout(() => { input.focus(); input.select(); }, 250);
+}
+
+function closeWeightModal() {
+  document.getElementById('weightModal').classList.remove('show');
+}
+
+function toggleWeightUnit() {
+  const input = document.getElementById('wgInput');
+  const current = parseFloat(input.value);
+  const kg = Number.isFinite(current) ? fromDisplayWeight(current) : null;
+  lsSet(LS.weightUnit, weightUnit() === 'kg' ? 'lb' : 'kg');
+  document.getElementById('wgUnit').textContent = weightUnit();
+  if (kg !== null) input.value = toDisplayWeight(kg).toFixed(1);
+  const prev = allWeights().filter(w => w.date < state.viewDate).pop();
+  if (prev) document.getElementById('wgHint').textContent =
+    `Last: ${fmtWeight(prev.kg)} on ${shortDateLabel(prev.date)}`;
+  renderJourney();
+}
+
+function saveWeight() {
+  const dateStr = state.viewDate;
+  const raw = parseFloat(document.getElementById('wgInput').value);
+  if (!Number.isFinite(raw) || raw <= 0) { showToast('Enter a valid weight.'); return; }
+
+  const kg = fromDisplayWeight(raw);
+  if (kg < 20 || kg > 400) { showToast('That doesn\'t look right — check the number.'); return; }
+
+  const prev = allWeights().filter(w => w.date < dateStr).pop();
+  setWeightFor(dateStr, kg);
+
+  // Recording a number also earns the weigh-in win itself.
+  const alreadyTicked = hasWin(dateStr, 'weighin');
+  if (!alreadyTicked) _setWin('weighin', true, dateStr);
+
+  closeWeightModal();
+  sndTick();
+  burstConfettiAt(window.innerWidth / 2, 200, 18);
+
+  if (prev) {
+    const diffKg = kg - prev.kg;
+    const diffTxt = (Math.abs(toDisplayWeight(Math.abs(diffKg)))).toFixed(1) + ' ' + weightUnit();
+    if (Math.abs(diffKg) < 0.05) showToast(`${fmtWeight(kg)} — holding steady.`);
+    else showToast(`${fmtWeight(kg)} — ${diffKg < 0 ? '↓' : '↑'} ${diffTxt} since last`);
+  } else {
+    showToast(`${fmtWeight(kg)} logged — baseline set.`);
+  }
+
+  _afterWinChange('body', dateStr);
+}
+
+function removeWeight() {
+  const dateStr = state.viewDate;
+  clearWeightFor(dateStr);
+  if (hasWin(dateStr, 'weighin')) _setWin('weighin', false, dateStr);
+  closeWeightModal();
+  sndUntick();
+  showToast('Weigh-in removed.');
+  _afterWinChange('body', dateStr);
 }
 
 // Programmatic win logging (workout complete, reflection saved) — always
@@ -1308,6 +1455,9 @@ function renderJourney() {
   }
   document.getElementById('heatmap').innerHTML = cells;
 
+  // --- Weight ---
+  renderWeightSection();
+
   // --- Achievements ---
   renderAchievements();
 
@@ -1333,6 +1483,153 @@ function renderJourney() {
           </div>`;
       }).join('')
     : '<div class="reflect-empty">Past reflections will appear here.</div>';
+}
+
+// ============================================
+// WEIGHT TREND
+// Line chart: change over time, single series (no legend needed — the
+// heading names it). Y axis is scaled to the data, not zero-based —
+// weight moves in a narrow band and a zero baseline would flatten every
+// real change into a straight line. Min/max are labelled so the scale
+// is explicit rather than implied.
+// ============================================
+function renderWeightSection() {
+  const wrap = document.getElementById('weightSection');
+  if (!wrap) return;
+
+  const all = allWeights();
+  const unit = weightUnit();
+
+  if (all.length === 0) {
+    wrap.innerHTML = `
+      <div class="j-section-title">Weight</div>
+      <div class="weight-empty">
+        No weigh-ins yet. Tap <strong>Weigh in</strong> under Body on the Wins tab to record your first — it becomes your baseline.
+      </div>`;
+    return;
+  }
+
+  const latest = all[all.length - 1];
+  const first = all[0];
+
+  // Compare against the nearest entry at least 30 days old, if there is one.
+  const cutoff = fmtDate(addDays(parseDate(state.todayStr), -30));
+  const older = all.filter(w => w.date <= cutoff);
+  const ref = older.length ? older[older.length - 1] : first;
+  const refIsFirst = ref.date === first.date;
+
+  const diffKg = latest.kg - ref.kg;
+  const diffAbs = Math.abs(toDisplayWeight(Math.abs(diffKg))).toFixed(1);
+  const dirClass = diffKg < -0.05 ? 'down' : (diffKg > 0.05 ? 'up' : 'flat');
+  const arrow = diffKg < -0.05 ? '↓' : (diffKg > 0.05 ? '↑' : '→');
+  const sinceLabel = refIsFirst ? 'since first weigh-in' : 'over 30 days';
+
+  const totalKg = latest.kg - first.kg;
+  const totalTxt = (Math.abs(toDisplayWeight(Math.abs(totalKg)))).toFixed(1);
+
+  wrap.innerHTML = `
+    <div class="j-section-title">
+      Weight
+      <button class="unit-toggle" onclick="toggleWeightUnit()">${unit} ⇄</button>
+    </div>
+    <div class="weight-card">
+      <div class="weight-hero">
+        <div>
+          <div class="weight-now">${toDisplayWeight(latest.kg).toFixed(1)}<span class="weight-unit">${unit}</span></div>
+          <div class="weight-when">${shortDateLabel(latest.date)}</div>
+        </div>
+        <div class="weight-delta ${dirClass}">
+          <div class="wd-value">${arrow} ${diffAbs}${unit}</div>
+          <div class="wd-label">${sinceLabel}</div>
+        </div>
+      </div>
+      ${weightChartSvg(all)}
+      <div class="weight-foot">
+        <span>${all.length} weigh-in${all.length === 1 ? '' : 's'}</span>
+        <span>${totalKg === 0 ? 'No net change' : `${totalKg < 0 ? '↓' : '↑'} ${totalTxt}${unit} all time`}</span>
+      </div>
+    </div>
+    <div class="weight-log" id="weightLog">
+      ${all.slice(-8).reverse().map((w, i, arr) => {
+        const prev = arr[i + 1];
+        const d = prev ? w.kg - prev.kg : null;
+        const dTxt = d === null ? '—'
+          : (Math.abs(d) < 0.05 ? '±0.0'
+            : `${d < 0 ? '−' : '+'}${Math.abs(toDisplayWeight(Math.abs(d))).toFixed(1)}`);
+        const dCls = d === null || Math.abs(d) < 0.05 ? 'flat' : (d < 0 ? 'down' : 'up');
+        return `<div class="wl-row">
+          <span class="wl-date">${shortDateLabel(w.date)}</span>
+          <span class="wl-kg">${toDisplayWeight(w.kg).toFixed(1)}${unit}</span>
+          <span class="wl-diff ${dCls}">${dTxt}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function weightChartSvg(all) {
+  // Cap to the retained window so the line stays legible.
+  const pts = all.slice(-40);
+  if (pts.length < 2) {
+    return `<div class="weight-single">One entry so far — the trend line appears from your second weigh-in.</div>`;
+  }
+
+  // padR reserves a gutter for the scale labels so they can never collide
+  // with the line, whichever direction the trend runs.
+  const W = 300, H = 110, padL = 6, padR = 34, padT = 12, padB = 16;
+  const vals = pts.map(p => toDisplayWeight(p.kg));
+  let min = Math.min(...vals), max = Math.max(...vals);
+  if (max - min < 1) { const mid = (max + min) / 2; min = mid - 0.5; max = mid + 0.5; }
+  const pad = (max - min) * 0.15;
+  min -= pad; max += pad;
+
+  const t0 = parseDate(pts[0].date).getTime();
+  const t1 = parseDate(pts[pts.length - 1].date).getTime();
+  const span = Math.max(t1 - t0, 1);
+  const x = p => padL + ((parseDate(p.date).getTime() - t0) / span) * (W - padL - padR);
+  const y = v => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+
+  const coords = pts.map((p, i) => ({ x: x(p), y: y(vals[i]), v: vals[i], date: p.date }));
+  const line = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+  const area = `${line} L${coords[coords.length - 1].x.toFixed(1)},${H - padB} L${coords[0].x.toFixed(1)},${H - padB} Z`;
+
+  const last = coords[coords.length - 1];
+  const unit = weightUnit();
+
+  // Hit targets are wider than the marks so tapping a point is easy on a phone.
+  const hits = coords.map((c, i) => {
+    const halfW = (W - padL - padR) / Math.max(coords.length - 1, 1) / 2 + 4;
+    return `<rect x="${Math.max(c.x - halfW, 0).toFixed(1)}" y="0" width="${(halfW * 2).toFixed(1)}" height="${H}"
+      fill="transparent" class="wc-hit"
+      onclick="showWeightPoint(event, '${c.date}', '${c.v.toFixed(1)}')"></rect>`;
+  }).join('');
+
+  return `
+    <div class="weight-chart">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+           aria-label="Weight trend, ${vals[0].toFixed(1)} to ${vals[vals.length-1].toFixed(1)} ${unit}">
+        <line class="wc-grid" x1="${padL}" y1="${y(max - pad).toFixed(1)}" x2="${W - padR}" y2="${y(max - pad).toFixed(1)}"/>
+        <line class="wc-grid" x1="${padL}" y1="${y(min + pad).toFixed(1)}" x2="${W - padR}" y2="${y(min + pad).toFixed(1)}"/>
+        <path class="wc-area" d="${area}"/>
+        <path class="wc-line" d="${line}"/>
+        ${coords.map(c => `<circle class="wc-dot" cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="2.5"/>`).join('')}
+        <circle class="wc-dot-last" cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="4"/>
+        ${hits}
+      </svg>
+      <div class="wc-scale">
+        <span>${(max - pad).toFixed(1)}</span>
+        <span>${(min + pad).toFixed(1)}</span>
+      </div>
+      <div class="wc-tip" id="wcTip"></div>
+    </div>`;
+}
+
+function showWeightPoint(evt, dateStr, val) {
+  const tip = document.getElementById('wcTip');
+  if (!tip) return;
+  tip.textContent = `${shortDateLabel(dateStr)} · ${val}${weightUnit()}`;
+  tip.classList.add('show');
+  clearTimeout(showWeightPoint._t);
+  showWeightPoint._t = setTimeout(() => tip.classList.remove('show'), 2200);
 }
 
 function escapeHtml(s) {
