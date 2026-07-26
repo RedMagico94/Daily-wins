@@ -1,6 +1,6 @@
 // Daily Wins service worker — offline-first app shell.
 // Bump the version to force clients onto new assets.
-const CACHE = 'daily-wins-v4';
+const CACHE = 'daily-wins-v5';
 
 const APP_SHELL = [
   './',
@@ -64,6 +64,39 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => cached);
       return cached || network;
+    })
+  );
+});
+
+// ============================================
+// EVENING REMINDER — push handling
+// ============================================
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch (e) { /* non-JSON push */ }
+
+  const title = payload.title || 'Daily Wins';
+  const options = {
+    body: payload.body || 'Log tonight\'s wins before the day closes.',
+    icon: 'icon-192.png',
+    badge: 'icon-192.png',
+    tag: payload.tag || 'daily-reminder',
+    renotify: false,
+    data: { url: payload.url || './' },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || './';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      // Focus an existing window rather than opening a second copy.
+      for (const client of list) {
+        if ('focus' in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(target);
     })
   );
 });
